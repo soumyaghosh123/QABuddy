@@ -1,0 +1,74 @@
+# QABuddy data sources. Paths are relative to data/.
+# Order matters: parsing and duplicate detection follow this order.
+
+defaults:
+  exclude_dirs: [.git, .idea, node_modules, target, tta-report, test-results,
+                 playwright-report, allure-results, .husky]
+  exclude_files: ["_README*", package-lock.json, "*.lock"]
+  binary_ext: [.zip, .webm, .mp4, .png, .jpg, .jpeg, .gif, .ico, .svg, .jar, .class,
+               .woff, .woff2, .ttf, .exe, .dll]
+
+sources:
+  - id: selenium
+    label: Selenium framework
+    folder: 07_Source_Codes/01_selenium_framework
+    parser: code
+    include: ["**/*.java", "**/*.md", "**/*.mdx", "**/*.xml", "**/*.json",
+              "**/*.yml", "**/*.yaml", "**/*.properties", "**/.env", "**/*.env"]
+
+  - id: playwright
+    label: Playwright framework
+    folder: 07_Source_Codes/02_playwright_framework
+    parser: code
+    include: ["**/*.ts", "**/*.js", "**/*.md", "**/*.mdx", "**/*.json",
+              "**/*.yml", "**/*.yaml", "**/.env", "**/*.env"]
+    exclude_files: ["*.html"]
+
+  - id: testcases
+    label: Test cases
+    folder: 00_TestCases
+    parser: testcases
+    include: ["**/*.csv", "**/*.xlsx"]
+
+  - id: jira
+    label: JIRA
+    folder: 01_JIRA_Tickets
+    parser: jira
+    include: ["**/*.md", "**/*.txt"]
+
+  - id: company_docs
+    label: Company docs
+    folder: 02_Company_Docs
+    parser: documents
+    include: ["**/*.md", "**/*.pdf"]
+
+  - id: figma
+    label: Figma designs
+    folder: 06_Figma_Desings
+    parser: none
+    enabled: false          # Phase 2
+    include: []
+
+  - id: meetings
+    label: Meeting notes
+    folder: 03_Meeting_Notes
+    parser: meetings
+    include: ["**/*.txt", "**/*.md", "**/*.vtt", "**/*.srt"]
+
+  - id: lucid
+    label: Lucid charts
+    folder: 04_Lucid_charts
+    parser: lucid
+    include: ["**/*.json", "**/*.csv", "**/*.txt", "**/*.md"]
+
+  - id: requirements
+    label: Requirements (PRD/SRS/BRD/FRD)
+    folder: 05_PRD_SRS_BRD_FRDs
+    parser: documents
+    include: ["**/*.pdf", "**/*.md"]
+
+  - id: jenkins
+    label: Jenkins
+    folder: 06_Jenkins_Logs
+    parser: jenkins
+    include: ["**/*.log", "**/*.txt", "**/*.xml"]

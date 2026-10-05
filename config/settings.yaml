@@ -1,0 +1,53 @@
+# QABuddy runtime settings. Override any key with an environment variable:
+# QABUDDY_<SECTION>__<KEY>, e.g. QABUDDY_RETRIEVAL__TOP_K=4
+data_dir: data
+storage_dir: storage
+
+qdrant:
+  url: http://localhost:6333
+  collection: qabuddy_chunks
+
+ollama:
+  url: http://localhost:11434
+  embed_model: "qwen3-embedding:0.6b"
+  llm_model: "qwen3:4b-instruct-2507-q4_K_M"   # used only when llm.provider is ollama
+  num_ctx: 8192
+  temperature: 0.2          # temperature, max_answer_tokens and timeout_s apply to every llm.provider
+  max_answer_tokens: 700
+  timeout_s: 300
+
+# Which model writes the answer. Embeddings, BM25 and reranking always stay local.
+llm:
+  provider: deepseek        # deepseek (OpenAI-compatible API) | ollama (local, slow on CPU)
+  base_url: https://api.deepseek.com
+  model: deepseek-flash
+  api_key_env: DEEPSEEK_API_KEY   # the key is read from this env var; never put the key in this file
+  extra_body:
+    thinking: {type: disabled}    # non-thinking mode: faster, cheaper answers
+
+reranker:
+  model: "Xenova/ms-marco-MiniLM-L-12-v2"   # chosen by `qabuddy eval` benchmark (spec §7)
+  max_chars: 1200                           # characters of header+text scored per candidate (CPU time bound)
+
+retrieval:
+  dense_k: 30
+  sparse_k: 30
+  id_k: 10
+  rerank_candidates: 30
+  top_k: 6
+  max_per_parent: 3
+  min_rerank_score: -3.6574   # calibrated by `qabuddy eval` (spec §7)
+
+chunking:
+  target_tokens: 400
+  max_tokens: 800
+  min_tokens: 40
+  prose_overlap_tokens: 60
+
+prompt:
+  max_source_tokens: 2800
+  history_turns: 2
+
+api:
+  host: 127.0.0.1
+  port: 8000

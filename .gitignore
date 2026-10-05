@@ -1,0 +1,25 @@
+# Owner data and local runtime state
+data/
+storage/
+tools/
+.superpowers/
+*.log
+
+# Qdrant writes these into whatever directory it was started from
+.qdrant-initialized
+snapshots/
+
+# Secrets: the DeepSeek key lives in the DEEPSEEK_API_KEY env var, never in a file
+.env
+*.env
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Frontend
+node_modules/
+frontend/dist/
+*.tsbuildinfo

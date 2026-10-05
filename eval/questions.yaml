@@ -1,0 +1,64 @@
+# QABuddy retrieval eval set (spec §13).
+# expect: substrings matched (case-insensitively) against a hit's citation or path; any one counts.
+# answerable: false → the system should answer "not found".
+# example: true → shown as an example question in the web UI (exactly 6).
+
+- q: Why did testLoginPositiveVWO fail in Jenkins build 142?
+  expect: ["vwo-selenium-regression #142", "Login_Failure_Triage", "QAB-101"]
+  example: true
+- q: Which test cases cover the login page?
+  expect: ["LOGIN-0"]
+  example: true
+- q: What is our coding standard for explicit waits in the Selenium framework?
+  expect: ["Automation_Coding_Standards"]
+  example: true
+- q: What is VWO-26 about and what is its status?
+  expect: ["VWO-26"]
+- q: Why does the Playwright checkout test fail in build 88?
+  expect: ["QAB-103", "playwright-e2e #88", "should complete checkout successfully"]
+  example: true
+- q: How does DriverManager create and manage the WebDriver?
+  expect: ["DriverManager.java", "DriverManagerTL.java"]
+- q: What are the stages of the CI test pipeline in Jenkins?
+  expect: ["CI_Test_Pipeline", "CI Test Pipeline"]
+- q: What was decided in the login failure triage meeting?
+  expect: ["Login_Failure_Triage", "Login Failure Triage"]
+  example: true
+- q: What are the business objectives and primary goals of VWO in the PRD?
+  expect: ["Product Requirements Document"]
+- q: How do I call the order API from a Playwright test?
+  expect: ["OrderApi.ts", "src/api/"]
+- q: Which product areas have no test cases yet according to the gap analysis?
+  expect: ["Daily_Standup", "Daily Standup", "Sprint_15"]
+- q: How do I log in with remember me using the Playwright LoginModule?
+  expect: ["LoginModule.ts"]
+- q: What should a new QA engineer do in their first week?
+  expect: ["QA_Onboarding_Guide"]
+- q: What is our flaky test policy and when is a test quarantined?
+  expect: ["QA_Process_Handbook", "QAB-102", "Sprint_15"]
+  example: true
+- q: Which tests passed only after a retry?
+  expect: ["Test history", "#143", "#88", "QAB-102"]
+- q: What happens after 5 failed login attempts?
+  expect: ["Login_Authentication_Flow", "Login Authentication Flow"]
+- q: What are the states of an A/B test experiment lifecycle?
+  expect: ["AB_Test_Experiment_Lifecycle", "A/B Test Experiment Lifecycle"]
+- q: How many test cases are automated and what is the automation target?
+  expect: ["Sprint_15"]
+- q: Which test cases check login with invalid credentials?
+  expect: ["INVALID-0", "LOGIN-0"]
+- q: Where is the VWO login URL and username configured in the Selenium framework?
+  expect: ["data.properties", "PropertiesReader"]
+- q: What causes the "IP address or location did not match" error on CI?
+  expect: ["QAB-101", "Login_Failure_Triage", "#142"]
+- q: How does RetryAnalyzer retry failed tests in the Selenium framework?
+  expect: ["RetryAnalyzer.java", "RetryListener.java", "QAB-102"]
+- q: What is the severity vs priority definition for bug triage?
+  expect: ["QA_Process_Handbook"]
+
+- q: What is the salary band for an SDET II?
+  answerable: false
+- q: How do I deploy the payments microservice to Kubernetes production?
+  answerable: false
+- q: What is the office Wi-Fi password?
+  answerable: false
