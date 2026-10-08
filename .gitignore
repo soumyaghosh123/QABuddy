@@ -23,3 +23,6 @@ __pycache__/
 node_modules/
 frontend/dist/
 *.tsbuildinfo
+
+# Vercel CLI project link
+.vercel/

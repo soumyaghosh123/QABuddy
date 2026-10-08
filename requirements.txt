@@ -1,0 +1,7 @@
+fastapi>=0.142,<1
+qdrant-client>=1.19,<2
+httpx>=0.28,<1
+pydantic>=2.13,<3
+pyyaml>=6.0
+mmh3>=5.3
+py-rust-stemmers>=0.1.8

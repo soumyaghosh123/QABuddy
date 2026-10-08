@@ -1,0 +1,21 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "services": {
+    "web": { "root": "frontend/" },
+    "api": {
+      "root": "./",
+      "entrypoint": "vercel_app:app",
+      "functions": {
+        "vercel_app.py": {
+          "maxDuration": 60,
+          "excludeFiles": "{frontend/**,docs/**,scripts/**,backend/tests/**,backend/uv.lock,**/__pycache__/**}"
+        }
+      }
+    }
+  },
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": { "service": "api" } },
+    { "source": "/(.*)", "destination": { "service": "web" } }
+  ],
+  "crons": [{ "path": "/api/health", "schedule": "0 6 * * *" }]
+}

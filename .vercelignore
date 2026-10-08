@@ -1,0 +1,16 @@
+data/
+storage/
+tools/
+.superpowers/
+docs/
+scripts/
+backend/.venv/
+backend/tests/
+**/__pycache__/
+**/node_modules/
+frontend/dist/
+.env
+*.env
+*.log
+.qdrant-initialized
+snapshots/
