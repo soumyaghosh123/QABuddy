@@ -41,12 +41,17 @@ export interface Turn {
   streaming: boolean;
 }
 
+export interface StackPill {
+  key: string;
+  label: string;
+  value: string;
+  ok: boolean;
+  error?: string;
+}
+
 export interface Health {
-  qdrant: { ok: boolean; error?: string };
-  ollama: { ok: boolean; error?: string };
-  models: { embed: boolean; llm: boolean };
-  llm?: { provider: string; model: string; ok: boolean; error?: string };
-  stack?: { vector_db: string; search: string; embed_model: string; rerank_model: string };
+  status: { level: 'ok' | 'warn' | 'down'; text: string };
+  stack: StackPill[];
   index: { chunks: number; last_ingest_at: number | null; index_version: number };
 }
 
