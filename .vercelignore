@@ -10,6 +10,7 @@ backend/tests/
 **/node_modules/
 frontend/dist/
 .env
+.env.*
 *.env
 *.log
 .qdrant-initialized
