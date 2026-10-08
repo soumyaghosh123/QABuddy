@@ -99,10 +99,11 @@ def calibrate_threshold(report: EvalReport) -> float | None:
     return round(low_answerable - 0.01, 4)
 
 
-def write_settings(settings_path: Path, reranker: str, threshold: float) -> None:
-    """Update reranker model and min_rerank_score in settings.yaml, keeping comments."""
+def write_settings(settings_path: Path, reranker: str | None, threshold: float) -> None:
+    """Update min_rerank_score (and the FastEmbed reranker model unless None) in a settings file, keeping comments."""
     text = settings_path.read_text(encoding="utf-8")
-    text = re.sub(r'(^\s*model:\s*)"[^"]*"(.*)$', lambda m: f'{m.group(1)}"{reranker}"{m.group(2)}',
-                  text, count=1, flags=re.M) if "reranker:" in text else text
+    if reranker is not None and "reranker:" in text:
+        text = re.sub(r'(^\s*model:\s*)"[^"]*"(.*)$', lambda m: f'{m.group(1)}"{reranker}"{m.group(2)}',
+                      text, count=1, flags=re.M)
     text = re.sub(r"(^\s*min_rerank_score:\s*)[-\d.]+", lambda m: f"{m.group(1)}{threshold}", text, flags=re.M)
     settings_path.write_text(text, encoding="utf-8")

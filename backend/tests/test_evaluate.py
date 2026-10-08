@@ -41,3 +41,16 @@ def test_questions_file_is_valid():
     assert len([q for q in questions if not q.answerable]) >= 3
     assert all(q.expect for q in answerable)
     assert sum(q.example for q in questions) == 6
+
+
+def test_write_settings_without_reranker_only_changes_threshold(tmp_path):
+    from qabuddy.evaluate import write_settings
+
+    original = (REPO_ROOT / "config" / "settings.cloud.yaml").read_text(encoding="utf-8")
+    original = original.replace("reranker:\n", 'reranker:\n  model: "keep-me"\n')  # must survive reranker=None
+    assert 'model: "keep-me"' in original
+    path = tmp_path / "settings.cloud.yaml"
+    path.write_text(original, encoding="utf-8")
+    write_settings(path, None, -1.25)
+    assert "min_rerank_score: 0.0" in original
+    assert path.read_text(encoding="utf-8") == original.replace("min_rerank_score: 0.0", "min_rerank_score: -1.25")

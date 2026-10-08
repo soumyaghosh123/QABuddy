@@ -70,15 +70,20 @@ def search(question: str,
 @app.command("eval")
 def eval_command(reranker: str = typer.Option(None, help="Cross-encoder model to evaluate (default from settings)"),
                  k: int = typer.Option(6, help="Top-k cut-off"),
-                 write: bool = typer.Option(False, "--write", help="Save reranker and calibrated threshold to settings.yaml")) -> None:
+                 write: bool = typer.Option(False, "--write", help="Save the calibrated threshold to the active profile's settings file")) -> None:
     """Run the retrieval eval set: hit@k, MRR, no-answer accuracy, calibrated threshold."""
     _setup_logging(False)
+    from qabuddy.components import active_reranker_model
     from qabuddy.config import REPO_ROOT
     from qabuddy.evaluate import calibrate_threshold, load_questions, run_eval, write_settings
     from qabuddy.retrieval.search import build_searcher
 
     settings = load_settings()
+    fastembed = settings.reranker.provider == "fastembed"
     if reranker:
+        if not fastembed:
+            typer.secho("--reranker only applies to the local FastEmbed reranker", fg="red", err=True)
+            raise typer.Exit(2)
         settings.reranker.model = reranker
     settings.retrieval.min_rerank_score = float("-inf")  # measure raw scores
     report = run_eval(build_searcher(settings), load_questions(REPO_ROOT / "eval" / "questions.yaml"), k=k)
@@ -90,11 +95,11 @@ def eval_command(reranker: str = typer.Option(None, help="Cross-encoder model to
     unanswerable = sum(1 for r in report.per_question if not r["answerable"])
     rejected = round(report.no_answer_acc * unanswerable)
     gate = report.hit_at_k >= 0.85 and report.no_answer_acc == 1.0
-    typer.echo(f"\nreranker={settings.reranker.model}  hit@{k}={report.hit_at_k:.2%}  MRR={report.mrr:.3f}  "
+    typer.echo(f"\nreranker={active_reranker_model(settings)}  hit@{k}={report.hit_at_k:.2%}  MRR={report.mrr:.3f}  "
                f"no-answer={rejected}/{unanswerable}  threshold={threshold}  gate={'PASS' if gate else 'FAIL'}")
     if write and threshold is not None:
-        write_settings(settings.config_path / "settings.yaml", settings.reranker.model, threshold)
-        typer.echo("settings.yaml updated")
+        write_settings(settings.settings_file, settings.reranker.model if fastembed else None, threshold)
+        typer.echo(f"{settings.settings_file.name} updated")
 
 
 @app.command()
