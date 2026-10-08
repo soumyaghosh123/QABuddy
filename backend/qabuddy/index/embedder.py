@@ -1,4 +1,4 @@
-"""Dense embeddings via Ollama and BM25 sparse vectors via FastEmbed."""
+"""Dense embeddings via Ollama; BM25 sparse vectors via FastEmbed (documents) and Bm25QueryEncoder (queries)."""
 
 from __future__ import annotations
 
@@ -6,6 +6,8 @@ from typing import Callable
 
 import httpx
 from qdrant_client import models
+
+from qabuddy.index.bm25 import Bm25QueryEncoder
 
 QUERY_INSTRUCTION = ("Instruct: Given a QA engineer's question, retrieve the code, test cases, tickets, "
                      "logs or documents that answer it\nQuery: ")
@@ -65,4 +67,7 @@ class SparseEmbedder:
         return [self._to_vector(e) for e in self._model.embed(texts, batch_size=64)]
 
     def embed_query(self, question: str) -> models.SparseVector:
-        return self._to_vector(next(iter(self._model.query_embed(question))))
+        return _QUERY_ENCODER.embed_query(question)
+
+
+_QUERY_ENCODER = Bm25QueryEncoder()
