@@ -46,11 +46,10 @@ def test_questions_file_is_valid():
 def test_write_settings_without_reranker_only_changes_threshold(tmp_path):
     from qabuddy.evaluate import write_settings
 
-    original = (REPO_ROOT / "config" / "settings.cloud.yaml").read_text(encoding="utf-8")
-    original = original.replace("reranker:\n", 'reranker:\n  model: "keep-me"\n')  # must survive reranker=None
-    assert 'model: "keep-me"' in original
+    # A fixed sample (not the live settings.cloud.yaml, whose threshold changes on every calibration).
+    original = ("# cloud profile\nreranker:\n  provider: cloudflare\n  model: \"keep-me\"   # must survive reranker=None\n"
+                "retrieval:\n  min_rerank_score: 0.0194   # calibrated\n")
     path = tmp_path / "settings.cloud.yaml"
     path.write_text(original, encoding="utf-8")
     write_settings(path, None, -1.25)
-    assert "min_rerank_score: 0.0" in original
-    assert path.read_text(encoding="utf-8") == original.replace("min_rerank_score: 0.0", "min_rerank_score: -1.25")
+    assert path.read_text(encoding="utf-8") == original.replace("min_rerank_score: 0.0194", "min_rerank_score: -1.25")
