@@ -52,17 +52,17 @@ def apply_diversity(hits: list[Hit], max_per_parent: int) -> list[Hit]:
 
 
 class Searcher:
-    def __init__(self, settings: Settings, store, dense, sparse, reranker, db, glossary: dict):
+    def __init__(self, settings: Settings, store, dense, sparse, reranker, catalog, glossary: dict):
         self.settings, self.store, self.dense, self.sparse = settings, store, dense, sparse
-        self.reranker, self.db, self.glossary = reranker, db, glossary
+        self.reranker, self.catalog, self.glossary = reranker, catalog, glossary
         self._known: set[str] | None = None
         self._known_version: int | None = None
 
     def known_entities(self) -> set[str]:
         """Entity vocabulary from the last ingest; reloaded whenever the index version changes."""
-        version = self.db.index_version()
+        version = self.catalog.index_version()
         if self._known is None or version != self._known_version:
-            self._known, self._known_version = self.db.known_entities(), version
+            self._known, self._known_version = self.catalog.known_entities(), version
         return self._known
 
     def search(self, question: str, history: list[dict] | None = None, sources: list[str] | None = None) -> SearchResult:
@@ -98,19 +98,17 @@ class Searcher:
 
 
 def build_searcher(settings: Settings) -> Searcher:
-    from qabuddy.db import Database
-    from qabuddy.index.embedder import DenseEmbedder, SparseEmbedder
-    from qabuddy.index.store import VectorStore
-    from qabuddy.retrieval.reranker import Reranker
+    from qabuddy.catalog import make_catalog
+    from qabuddy.components import make_embedder, make_reranker
+    from qabuddy.index.bm25 import Bm25QueryEncoder
+    from qabuddy.index.store import make_store
 
-    db = Database(settings.db_path)
-    db.init()
     return Searcher(
         settings,
-        VectorStore(settings.qdrant.url, settings.qdrant.collection),
-        DenseEmbedder(settings.ollama.url, settings.ollama.embed_model),
-        SparseEmbedder(),
-        Reranker(settings.reranker.model),
-        db,
+        make_store(settings),
+        make_embedder(settings),
+        Bm25QueryEncoder(),
+        make_reranker(settings),
+        make_catalog(settings),
         load_glossary(settings.config_path / "glossary.yaml"),
     )
