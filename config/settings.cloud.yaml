@@ -12,4 +12,4 @@ catalog:
 cache:
   db_path: /tmp/qabuddy-cache.db
 retrieval:
-  min_rerank_score: 0.0   # placeholder until `QABUDDY_PROFILE=cloud qabuddy eval --write` (Task 13)
+  min_rerank_score: 0.0194   # bge-reranker-base, calibrated by `QABUDDY_PROFILE=cloud qabuddy eval --write` (2026-10-08)
