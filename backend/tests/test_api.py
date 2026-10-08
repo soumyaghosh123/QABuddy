@@ -138,6 +138,12 @@ def test_chunk_endpoint_returns_pdf_chunk(settings):
     assert client.get("/api/chunks/00000000-0000-0000-0000-000000000000").status_code == 404
 
 
+def test_health_lists_backend_stack(settings, db):
+    stack = _client(settings, db).get("/api/health").json()["stack"]
+    assert stack == {"vector_db": "Qdrant", "search": "hybrid RRF", "embed_model": settings.ollama.embed_model,
+                     "rerank_model": settings.reranker.model}
+
+
 def test_health_reports_deepseek_key_status(settings, db, monkeypatch):
     deepseek = settings.model_copy(update={"llm": settings.llm.model_copy(update={"provider": "deepseek"})})
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)

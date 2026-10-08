@@ -46,6 +46,7 @@ export interface Health {
   ollama: { ok: boolean; error?: string };
   models: { embed: boolean; llm: boolean };
   llm?: { provider: string; model: string; ok: boolean; error?: string };
+  stack?: { vector_db: string; search: string; embed_model: string; rerank_model: string };
   index: { chunks: number; last_ingest_at: number | null; index_version: number };
 }
 

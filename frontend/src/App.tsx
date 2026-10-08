@@ -4,6 +4,7 @@ import { ChatPanel } from './components/ChatPanel';
 import { EmptyState } from './components/EmptyState';
 import { SourcesPanel } from './components/SourcesPanel';
 import { SourceViewer } from './components/SourceViewer';
+import { StackBar } from './components/StackBar';
 import { TopBar } from './components/TopBar';
 import { streamChat } from './sse';
 import type { Health, SourceHit, SourceOption, Turn } from './types';
@@ -104,10 +105,9 @@ export default function App() {
         selected={filters}
         onToggle={toggleFilter}
         onClear={() => setFilters([])}
-        health={health}
-        healthError={healthError}
         onNewChat={newChat}
       />
+      <StackBar health={health} error={healthError} />
       <main className="layout">
         <section className="chat" aria-label="Conversation">
           {turns.length === 0 ? (

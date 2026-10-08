@@ -205,6 +205,8 @@ def create_app(settings: Settings, searcher=None, llm=None, db: Database | None 
         except httpx.HTTPError as exc:
             result["ollama"]["error"] = f"Ollama not reachable: {type(exc).__name__}"
         result["llm"] = llm_status(settings)
+        result["stack"] = {"vector_db": "Qdrant", "search": "hybrid RRF", "embed_model": settings.ollama.embed_model,
+                           "rerank_model": settings.reranker.model}
         if settings.llm.provider != "ollama":
             result["models"]["llm"] = result["llm"]["ok"]
         last = database.get_meta("last_ingest_at")
