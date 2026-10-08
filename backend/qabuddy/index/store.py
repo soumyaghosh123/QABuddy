@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Iterator
 
 from qdrant_client import QdrantClient, models
+from qdrant_client.http.exceptions import UnexpectedResponse
 
 from qabuddy.ingest.models import Chunk
+
+if TYPE_CHECKING:
+    from qabuddy.config import Settings
 
 PAYLOAD_INDEXES = ("source", "kind", "ids_norm", "path", "module", "parent_id")
 
@@ -23,16 +28,31 @@ class ScoredChunk:
 
 
 class VectorStore:
-    def __init__(self, url: str, collection: str):
-        self.url, self.collection = url, collection
-        self.client = QdrantClient(url=url, timeout=60, check_compatibility=False)
+    def __init__(self, url: str, collection: str, api_key: str | None = None):
+        self.url, self.collection, self.api_key = url, collection, api_key
+        self._client: QdrantClient | None = None
+
+    @property
+    def client(self) -> QdrantClient:
+        # Created on first use, so building the app never fails on an unset QDRANT_URL.
+        if self._client is None:
+            self._client = QdrantClient(url=self.url, api_key=self.api_key, timeout=60, check_compatibility=False)
+        return self._client
 
     def _call(self, fn, *args, **kwargs):
         try:
             return fn(*args, **kwargs)
+        except UnexpectedResponse as exc:
+            if exc.status_code in (401, 403):
+                raise IndexUnavailable(f"Qdrant at {self.url} rejected the API key ({exc.status_code}) — "
+                                       "check QDRANT_API_KEY.") from exc
+            raise
         except Exception as exc:  # noqa: BLE001
             if "Connect" in type(exc).__name__ or "connect" in str(exc).lower():
-                raise IndexUnavailable(f"Qdrant is not reachable at {self.url}. Start it with scripts/start.ps1.") from exc
+                local = "localhost" in self.url or "127.0.0.1" in self.url
+                hint = ("Start it with scripts/start.ps1." if local
+                        else "Check QDRANT_URL and the cluster status in Qdrant Cloud.")
+                raise IndexUnavailable(f"Qdrant is not reachable at {self.url}. {hint}") from exc
             raise
 
     def exists(self) -> bool:
@@ -57,8 +77,36 @@ class VectorStore:
             models.PointStruct(id=c.chunk_id, vector={"dense": d, "bm25": s}, payload=c.payload())
             for c, d, s in zip(chunks, dense, sparse)
         ]
+        self.upsert_raw(points, batch_size)
+
+    def upsert_raw(self, points: list[models.PointStruct], batch_size: int = 64) -> None:
         for start in range(0, len(points), batch_size):
             self._call(self.client.upsert, self.collection, points=points[start:start + batch_size], wait=True)
+
+    def scroll_all(self, with_vectors: bool = False, batch: int = 256) -> Iterator[tuple[str, dict, dict]]:
+        """Every point as (id, payload, named vectors); vectors is {} unless with_vectors."""
+        offset = None
+        while True:
+            points, offset = self._call(self.client.scroll, self.collection, limit=batch, offset=offset,
+                                        with_payload=True, with_vectors=with_vectors)
+            for p in points:
+                yield str(p.id), p.payload or {}, (p.vector or {}) if with_vectors else {}
+            if offset is None:
+                return
+
+    def ensure_meta_collection(self, name: str) -> None:
+        if not self._call(self.client.collection_exists, name):
+            self._call(self.client.create_collection, collection_name=name, vectors_config={})
+
+    def read_meta(self, name: str, point_id: str) -> dict | None:
+        if not self._call(self.client.collection_exists, name):
+            return None
+        points = self._call(self.client.retrieve, name, ids=[point_id], with_payload=True)
+        return (points[0].payload or {}) if points else None
+
+    def write_meta(self, name: str, point_id: str, payload: dict) -> None:
+        self._call(self.client.upsert, name, points=[models.PointStruct(id=point_id, vector={}, payload=payload)],
+                   wait=True)
 
     def delete(self, chunk_ids: list[str]) -> None:
         if chunk_ids and self.exists():
@@ -95,6 +143,16 @@ class VectorStore:
         if ids:
             id_filter = models.Filter(must=[*must, models.FieldCondition(key="ids_norm", match=models.MatchAny(any=ids))])
             prefetch.append(models.Prefetch(query=dense_q, using="dense", limit=id_k, filter=id_filter))
-        result = self._call(self.client.query_points, self.collection, prefetch=prefetch,
-                            query=models.FusionQuery(fusion=models.Fusion.RRF), limit=limit, with_payload=True)
+        try:
+            result = self._call(self.client.query_points, self.collection, prefetch=prefetch,
+                                query=models.FusionQuery(fusion=models.Fusion.RRF), limit=limit, with_payload=True)
+        except UnexpectedResponse as exc:
+            if exc.status_code == 404:
+                raise IndexUnavailable(f"Collection {self.collection} not found at {self.url} — run qabuddy ingest "
+                                       "(local) or qabuddy publish (cloud).") from exc
+            raise
         return [ScoredChunk(str(p.id), p.score, p.payload or {}) for p in result.points]
+
+
+def make_store(settings: Settings) -> VectorStore:
+    return VectorStore(settings.qdrant.url, settings.qdrant.collection, api_key=settings.qdrant.api_key())
