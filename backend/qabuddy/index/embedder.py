@@ -8,12 +8,14 @@ import httpx
 from qdrant_client import models
 
 from qabuddy.index.bm25 import Bm25QueryEncoder
+from qabuddy.inference.errors import InferenceUnavailable
 
-QUERY_INSTRUCTION = ("Instruct: Given a QA engineer's question, retrieve the code, test cases, tickets, "
-                     "logs or documents that answer it\nQuery: ")
+QUERY_TASK = ("Given a QA engineer's question, retrieve the code, test cases, tickets, logs or documents "
+              "that answer it")
+QUERY_INSTRUCTION = f"Instruct: {QUERY_TASK}\nQuery: "
 
 
-class OllamaUnavailable(RuntimeError):
+class OllamaUnavailable(InferenceUnavailable):
     pass
 
 
