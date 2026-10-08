@@ -7,7 +7,6 @@ import json
 import logging
 import re
 import time
-from collections import Counter
 from pathlib import Path
 from typing import Iterator
 
@@ -18,12 +17,14 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from qabuddy.answer.llm import LLMUnavailable, llm_status, make_llm
+from qabuddy.answer.llm import LLMUnavailable, make_llm
 from qabuddy.answer.prompt import build_messages, check_citations
+from qabuddy.catalog import make_catalog
 from qabuddy.config import REPO_ROOT, Settings
 from qabuddy.db import Database
-from qabuddy.index.embedder import OllamaUnavailable
-from qabuddy.index.store import IndexUnavailable
+from qabuddy.health import check_health
+from qabuddy.index.store import IndexUnavailable, make_store
+from qabuddy.inference.errors import InferenceUnavailable
 from qabuddy.ingest.discover import load_sources
 
 log = logging.getLogger(__name__)
@@ -53,11 +54,13 @@ def _cache_key(question: str, sources: list[str] | None) -> str:
     return hashlib.sha256(f"{normalized}|{','.join(sorted(sources or []))}".encode()).hexdigest()
 
 
-def create_app(settings: Settings, searcher=None, llm=None, db: Database | None = None) -> FastAPI:
+def create_app(settings: Settings, searcher=None, llm=None, db: Database | None = None, catalog=None,
+               http_client: httpx.Client | None = None) -> FastAPI:
     app = FastAPI(title="QABuddy.ai", version="0.1.0")
     state: dict = {"searcher": searcher, "llm": llm}
-    database = db or Database(settings.db_path)
+    database = db or Database(settings.cache_db_path)  # answer cache; /tmp on Vercel
     database.init()
+    catalog = catalog or make_catalog(settings, db=database if settings.cache_db_path == settings.db_path else None)
     source_ids = {s.id for s in load_sources(settings.config_path / "sources.yaml") if s.enabled}
 
     def get_searcher():
@@ -107,7 +110,12 @@ def create_app(settings: Settings, searcher=None, llm=None, db: Database | None 
             return _sse("done", payload)
 
         cache_key = _cache_key(question, sources)
-        version = database.index_version()
+        try:
+            version = catalog.index_version()
+        except IndexUnavailable as exc:
+            yield _sse("error", {"code": "index_unavailable", "message": str(exc)})
+            yield done()
+            return
         if not history:
             cached = database.cache_get(cache_key, version)
             if cached:
@@ -123,7 +131,7 @@ def create_app(settings: Settings, searcher=None, llm=None, db: Database | None 
             yield _sse("error", {"code": "index_unavailable", "message": str(exc)})
             yield done()
             return
-        except OllamaUnavailable as exc:
+        except InferenceUnavailable as exc:
             yield _sse("error", {"code": "llm_unavailable", "message": str(exc)})
             yield done()
             return
@@ -169,10 +177,8 @@ def create_app(settings: Settings, searcher=None, llm=None, db: Database | None 
 
     def get_store():
         if state.get("store") is None:
-            from qabuddy.index.store import VectorStore
-
             existing = getattr(state["searcher"], "store", None)
-            state["store"] = existing or VectorStore(settings.qdrant.url, settings.qdrant.collection)
+            state["store"] = existing or make_store(settings)
         return state["store"]
 
     @app.get("/api/chunks/{chunk_id}")
@@ -188,41 +194,16 @@ def create_app(settings: Settings, searcher=None, llm=None, db: Database | None 
 
     @app.get("/api/health")
     def health() -> dict:
-        result: dict = {"qdrant": {"ok": False}, "ollama": {"ok": False}, "models": {"embed": False, "llm": False},
-                        "index": {"chunks": 0, "last_ingest_at": None, "index_version": database.index_version()}}
-        try:
-            info = httpx.get(f"{settings.qdrant.url}/collections/{settings.qdrant.collection}", timeout=3)
-            result["qdrant"]["ok"] = info.status_code in (200, 404)
-            if info.status_code == 200:
-                result["index"]["chunks"] = info.json()["result"].get("points_count", 0)
-        except httpx.HTTPError as exc:
-            result["qdrant"]["error"] = f"Qdrant not reachable: {type(exc).__name__}"
-        try:
-            tags = httpx.get(f"{settings.ollama.url}/api/tags", timeout=3).json()
-            names = {m["name"] for m in tags.get("models", [])}
-            result["ollama"]["ok"] = True
-            result["models"] = {"embed": settings.ollama.embed_model in names, "llm": settings.ollama.llm_model in names}
-        except httpx.HTTPError as exc:
-            result["ollama"]["error"] = f"Ollama not reachable: {type(exc).__name__}"
-        result["llm"] = llm_status(settings)
-        result["stack"] = {"vector_db": "Qdrant", "search": "hybrid RRF", "embed_model": settings.ollama.embed_model,
-                           "rerank_model": settings.reranker.model}
-        if settings.llm.provider != "ollama":
-            result["models"]["llm"] = result["llm"]["ok"]
-        last = database.get_meta("last_ingest_at")
-        result["index"]["last_ingest_at"] = float(last) if last else None
-        return result
+        return check_health(settings, catalog, client=http_client)
 
     @app.get("/api/stats")
     def stats() -> dict:
-        files = database.all_files()
-        by_source: Counter = Counter()
-        for f in files:
-            by_source[f["source"]] += len(f["chunk_ids"])
-        return {"by_source": dict(by_source), "files": sum(1 for f in files if not f["path"].startswith("__")),
-                "failed_files": [{"path": f["path"], "error": f["error"]} for f in files if f["status"] == "failed"],
-                "sources": [{"id": s.id, "label": s.label} for s in load_sources(settings.config_path / "sources.yaml")
-                            if s.enabled]}
+        try:
+            body = catalog.stats()
+        except IndexUnavailable as exc:
+            raise HTTPException(503, {"code": "index_unavailable", "message": str(exc)})
+        return {**body, "sources": [{"id": s.id, "label": s.label}
+                                    for s in load_sources(settings.config_path / "sources.yaml") if s.enabled]}
 
     @app.get("/api/examples")
     def examples() -> list[str]:

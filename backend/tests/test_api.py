@@ -1,11 +1,14 @@
 import json
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
 from qabuddy.answer.llm import LLMUnavailable
 from qabuddy.api import create_app
 from qabuddy.db import Database
+from qabuddy.index.store import IndexUnavailable
+from qabuddy.inference.errors import InferenceUnavailable
 from qabuddy.retrieval.search import Hit, SearchResult
 
 
@@ -138,20 +141,67 @@ def test_chunk_endpoint_returns_pdf_chunk(settings):
     assert client.get("/api/chunks/00000000-0000-0000-0000-000000000000").status_code == 404
 
 
-def test_health_lists_backend_stack(settings, db):
-    stack = _client(settings, db).get("/api/health").json()["stack"]
-    assert stack == {"vector_db": "Qdrant", "search": "hybrid RRF", "embed_model": settings.ollama.embed_model,
-                     "rerank_model": settings.reranker.model}
+class FakeCatalog:
+    hint = "qabuddy ingest"
+
+    def __init__(self, fail=False):
+        self.fail = fail
+
+    def index_version(self):
+        if self.fail:
+            raise IndexUnavailable("down")
+        return 1
+
+    def known_entities(self):
+        return set()
+
+    def last_ingest_at(self):
+        return None
+
+    def stats(self):
+        return {"by_source": {"jira": 3}, "files": 2, "failed_files": []}
+
+
+class RaisingSearcher:
+    def search(self, question, history=None, sources=None):
+        raise InferenceUnavailable("cf down")
+
+
+def _services(request: httpx.Request) -> httpx.Response:
+    if request.url.path == "/api/tags":
+        return httpx.Response(200, json={"models": [{"name": "qwen3-embedding:0.6b"}]})
+    return httpx.Response(200, json={"result": {"points_count": 3}})
 
 
 def test_health_reports_deepseek_key_status(settings, db, monkeypatch):
     deepseek = settings.model_copy(update={"llm": settings.llm.model_copy(update={"provider": "deepseek"})})
-    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-    health = _client(deepseek, db).get("/api/health").json()
-    assert health["llm"]["provider"] == "deepseek" and health["llm"]["ok"] is False
-    assert "DEEPSEEK_API_KEY" in health["llm"]["error"] and health["models"]["llm"] is False
+    http = httpx.Client(transport=httpx.MockTransport(_services))
 
+    def llm_pill():
+        app = create_app(deepseek, searcher=FakeSearcher(), llm=FakeLLM(), db=db, http_client=http)
+        return next(p for p in TestClient(app).get("/api/health").json()["stack"] if p["key"] == "llm")
+
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    assert llm_pill() == {"key": "llm", "label": "LLM", "value": "DeepSeek · deepseek-flash", "ok": False,
+                          "error": "DEEPSEEK_API_KEY is not set"}
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
-    health = _client(deepseek, db).get("/api/health").json()
-    assert health["llm"] == {"provider": "deepseek", "model": "deepseek-flash", "ok": True}
-    assert health["models"]["llm"] is True
+    assert llm_pill() == {"key": "llm", "label": "LLM", "value": "DeepSeek · deepseek-flash", "ok": True}
+
+
+def test_chat_reports_index_unavailable_when_catalog_fails(settings, db):
+    app = create_app(settings, searcher=FakeSearcher(), llm=FakeLLM(), db=db, catalog=FakeCatalog(fail=True))
+    events = _events(TestClient(app).post("/api/chat", json={"question": "q?"}).text)
+    assert [e for e, _ in events] == ["error", "done"]
+    assert events[0][1]["code"] == "index_unavailable"
+
+
+def test_chat_maps_inference_errors_to_llm_unavailable(settings, db):
+    events = _events(_client(settings, db, searcher=RaisingSearcher()).post("/api/chat", json={"question": "q?"}).text)
+    assert events[0] == ("error", {"code": "llm_unavailable", "message": "cf down"})
+
+
+def test_stats_comes_from_catalog(settings, db):
+    app = create_app(settings, searcher=FakeSearcher(), llm=FakeLLM(), db=db, catalog=FakeCatalog())
+    body = TestClient(app).get("/api/stats").json()
+    assert body["by_source"] == {"jira": 3} and body["files"] == 2 and body["failed_files"] == []
+    assert {"id": "jira"}.items() <= next(s for s in body["sources"] if s["id"] == "jira").items()
