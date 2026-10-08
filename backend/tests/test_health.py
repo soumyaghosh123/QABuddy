@@ -107,3 +107,24 @@ def test_local_everything_down():
     assert health["status"]["level"] == "down"
     assert _pill(health, "vector")["error"] == "Qdrant not reachable: ConnectError"
     assert _pill(health, "embed")["error"] == "Ollama not reachable: ConnectError"
+
+
+class ExplodingCatalog(FakeCatalog):
+    def index_version(self):
+        raise RuntimeError("catalog must not be read while the vector DB is failing")
+
+
+def test_catalog_skipped_when_vector_db_failing():
+    health = _check(CLOUD_ENV, Services(qdrant_status=401), catalog=ExplodingCatalog())
+    assert health["index"]["index_version"] == 0 and health["status"]["level"] == "warn"
+
+
+def test_cloud_missing_qdrant_url_with_real_catalog():
+    from qabuddy.catalog import make_catalog
+
+    env = {k: v for k, v in CLOUD_ENV.items() if k != "QDRANT_URL"}
+    settings = load_settings(env=env)
+    catalog = make_catalog(settings)
+    health = check_health(settings, catalog, client=Services().client(), env=env)
+    assert _pill(health, "vector")["error"] == "QDRANT_URL is not set"
+    assert catalog.store._client is None  # no Qdrant client was ever created, so nothing reached localhost

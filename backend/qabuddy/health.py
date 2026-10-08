@@ -98,10 +98,12 @@ def check_health(settings: Settings, catalog, client: httpx.Client | None = None
     llm_pill = _pill("llm", "LLM", f"{PROVIDERS.get(llm['provider'], llm['provider'])} · {llm['model']}", llm_error)
     stack = [vector, embed, rerank, llm_pill]
 
-    try:
-        version, last = catalog.index_version(), catalog.last_ingest_at()
-    except IndexUnavailable:
-        version, last = 0, None
+    version, last = 0, None
+    if vector_error is None:  # the catalog lives in Qdrant too; don't wait on (or crash with) a failing vector DB
+        try:
+            version, last = catalog.index_version(), catalog.last_ingest_at()
+        except IndexUnavailable:
+            pass
     problems = [p["error"] for p in stack if not p["ok"]]
     if vector["ok"] and (chunks == 0 or version == 0):
         problems.append(f"index is empty — run {catalog.hint}")

@@ -17,6 +17,8 @@ from qabuddy.catalog import build_manifest, read_manifest, write_manifest
 from qabuddy.db import Database
 
 GROUP = 64
+EMPTY_LOCAL = ("Local index is empty — run qabuddy ingest first. "
+               "Refusing to publish: it would delete the cloud index.")
 
 
 class PublishError(RuntimeError):
@@ -50,10 +52,14 @@ def run_publish(local_store, cloud_store, embedder, db: Database, meta_collectio
                 dry_run: bool = False, progress: Callable[[str], None] | None = None,
                 clock: Callable[[], float] = time.time) -> PublishReport:
     started = time.perf_counter()
+    local_url = getattr(local_store, "url", None)
+    if local_url and local_url == getattr(cloud_store, "url", None):
+        raise PublishError("The cloud Qdrant URL is the local one — set QDRANT_URL to your Qdrant Cloud endpoint.")
+    if not local_store.exists():
+        raise PublishError(EMPTY_LOCAL)
     local = {pid: (payload, vectors) for pid, payload, vectors in local_store.scroll_all(with_vectors=True)}
     if not local:
-        raise PublishError("Local index is empty — run qabuddy ingest first. "
-                           "Refusing to publish: it would delete the cloud index.")
+        raise PublishError(EMPTY_LOCAL)
     cloud = {pid: payload for pid, payload, _ in cloud_store.scroll_all()} if cloud_store.exists() else {}
     new, changed, deleted, unchanged = diff_points({pid: p for pid, (p, _) in local.items()}, cloud)
     previous = read_manifest(cloud_store, meta_collection)

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Iterator
 
 from qdrant_client import QdrantClient, models
-from qdrant_client.http.exceptions import UnexpectedResponse
+from qdrant_client.http.exceptions import ResponseHandlingException, UnexpectedResponse
 
 from qabuddy.ingest.models import Chunk
 
@@ -28,16 +28,23 @@ class ScoredChunk:
 
 
 class VectorStore:
-    def __init__(self, url: str, collection: str, api_key: str | None = None):
-        self.url, self.collection, self.api_key = url, collection, api_key
+    def __init__(self, url: str, collection: str, api_key: str | None = None, url_env: str = ""):
+        self.url, self.collection, self.api_key, self.url_env = url, collection, api_key, url_env
         self._client: QdrantClient | None = None
 
     @property
     def client(self) -> QdrantClient:
         # Created on first use, so building the app never fails on an unset QDRANT_URL.
+        if not self.url:  # an empty URL would make QdrantClient silently use localhost:6333
+            raise IndexUnavailable(f"{self.url_env or 'The Qdrant URL'} is not set")
         if self._client is None:
             self._client = QdrantClient(url=self.url, api_key=self.api_key, timeout=60, check_compatibility=False)
         return self._client
+
+    def _unreachable(self, exc: Exception) -> IndexUnavailable:
+        local = "localhost" in self.url or "127.0.0.1" in self.url
+        hint = "Start it with scripts/start.ps1." if local else "Check QDRANT_URL and the cluster status in Qdrant Cloud."
+        return IndexUnavailable(f"Qdrant is not reachable at {self.url} ({type(exc).__name__}). {hint}")
 
     def _call(self, fn, *args, **kwargs):
         try:
@@ -46,13 +53,14 @@ class VectorStore:
             if exc.status_code in (401, 403):
                 raise IndexUnavailable(f"Qdrant at {self.url} rejected the API key ({exc.status_code}) — "
                                        "check QDRANT_API_KEY.") from exc
+            if exc.status_code is not None and exc.status_code >= 500:
+                raise IndexUnavailable(f"Qdrant at {self.url} returned {exc.status_code}.") from exc
             raise
+        except ResponseHandlingException as exc:  # DNS failures, timeouts, dropped connections
+            raise self._unreachable(exc.source) from exc
         except Exception as exc:  # noqa: BLE001
             if "Connect" in type(exc).__name__ or "connect" in str(exc).lower():
-                local = "localhost" in self.url or "127.0.0.1" in self.url
-                hint = ("Start it with scripts/start.ps1." if local
-                        else "Check QDRANT_URL and the cluster status in Qdrant Cloud.")
-                raise IndexUnavailable(f"Qdrant is not reachable at {self.url}. {hint}") from exc
+                raise self._unreachable(exc) from exc
             raise
 
     def exists(self) -> bool:
@@ -155,4 +163,5 @@ class VectorStore:
 
 
 def make_store(settings: Settings) -> VectorStore:
-    return VectorStore(settings.qdrant.url, settings.qdrant.collection, api_key=settings.qdrant.api_key())
+    return VectorStore(settings.qdrant.url, settings.qdrant.collection, api_key=settings.qdrant.api_key(),
+                       url_env=settings.qdrant.url_env)

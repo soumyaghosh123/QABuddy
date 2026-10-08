@@ -77,3 +77,26 @@ def test_meta_and_scroll_round_trip():
     finally:
         store.drop()
         store.client.delete_collection(meta)
+
+
+def test_empty_url_raises_on_first_use():
+    store = VectorStore("", "c", url_env="QDRANT_URL")
+    with pytest.raises(IndexUnavailable, match="QDRANT_URL is not set"):
+        store.exists()
+
+
+def test_dns_failure_maps_to_index_unavailable(monkeypatch):
+    from qdrant_client.http.exceptions import ResponseHandlingException
+
+    store = VectorStore("https://typo.cloud.qdrant.io", "c")
+    monkeypatch.setattr(store.client, "collection_exists",
+                        _raise(ResponseHandlingException(OSError("[Errno 11001] getaddrinfo failed"))))
+    with pytest.raises(IndexUnavailable, match="not reachable"):
+        store.exists()
+
+
+def test_server_error_maps_to_index_unavailable(monkeypatch):
+    store = VectorStore("https://x.cloud.qdrant.io", "c")
+    monkeypatch.setattr(store.client, "collection_exists", _raise(_unexpected(503)))
+    with pytest.raises(IndexUnavailable, match="503"):
+        store.exists()

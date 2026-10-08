@@ -24,6 +24,8 @@ class FakeStore:
         self._exists = True
 
     def scroll_all(self, with_vectors=False, batch=256):
+        if not self._exists:
+            raise RuntimeError("404: collection not found")  # as real Qdrant does
         for pid, (payload, vectors) in self.points.items():
             yield pid, payload, vectors if with_vectors else {}
 
@@ -153,3 +155,18 @@ def test_failure_mid_way_leaves_manifest_unchanged(db):
     with pytest.raises(InferenceUnavailable):
         _publish(_local(100), cloud, db, FakeEmbedder(fail_on_call=2))
     assert "write_meta" not in cloud.ops and (META, MANIFEST_ID) not in cloud.meta
+
+
+def test_refuses_when_local_collection_missing(db):
+    cloud = FakeStore({_pid(1): ({"text": "keep"}, {})})
+    with pytest.raises(PublishError, match="Local index is empty"):
+        _publish(FakeStore(exists=False), cloud, db)
+    assert cloud.ops == []
+
+
+def test_refuses_when_cloud_is_the_local_qdrant(db):
+    local, cloud = _local(3), FakeStore(exists=False)
+    local.url = cloud.url = "http://localhost:6333"
+    with pytest.raises(PublishError, match="QDRANT_URL"):
+        _publish(local, cloud, db)
+    assert cloud.ops == []
