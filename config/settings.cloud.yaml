@@ -1,0 +1,15 @@
+# Vercel profile (QABUDDY_PROFILE=cloud). Secrets and the cluster URL come from env vars, never this file.
+qdrant:
+  url: ""
+  url_env: QDRANT_URL
+  api_key_env: QDRANT_API_KEY
+embeddings:
+  provider: cloudflare
+reranker:
+  provider: cloudflare
+catalog:
+  provider: manifest
+cache:
+  db_path: /tmp/qabuddy-cache.db
+retrieval:
+  min_rerank_score: 0.0   # placeholder until `QABUDDY_PROFILE=cloud qabuddy eval --write` (Task 13)
