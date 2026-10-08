@@ -98,6 +98,31 @@ def eval_command(reranker: str = typer.Option(None, help="Cross-encoder model to
 
 
 @app.command()
+def publish(dry_run: bool = typer.Option(False, "--dry-run", help="Show what would change; write nothing"),
+            verbose: bool = typer.Option(False, "--verbose", "-v")) -> None:
+    """Mirror the local index to Qdrant Cloud (cloud profile) and update the manifest."""
+    _setup_logging(verbose)
+    from qabuddy.components import active_embed_model, make_embedder
+    from qabuddy.db import Database
+    from qabuddy.index.store import IndexUnavailable, make_store
+    from qabuddy.inference.errors import InferenceUnavailable
+    from qabuddy.publish import PublishError, run_publish
+
+    local, cloud = load_settings(profile="local"), load_settings(profile="cloud")
+    try:
+        report = run_publish(make_store(local), make_store(cloud), make_embedder(cloud), Database(local.db_path),
+                             cloud.qdrant.meta_collection, active_embed_model(cloud), dry_run=dry_run,
+                             progress=typer.echo)
+    except (InferenceUnavailable, IndexUnavailable, PublishError) as exc:
+        typer.secho(f"ERROR: {exc}", fg="red", err=True)
+        raise typer.Exit(2)
+    prefix = "Dry run — nothing written. " if report.dry_run else ""
+    typer.echo(f"{prefix}Published: {report.new} new, {report.changed} changed, {report.deleted} deleted, "
+               f"{report.unchanged} unchanged · {report.texts_embedded} chunks embedded · "
+               f"index version {report.index_version} · {report.seconds}s")
+
+
+@app.command()
 def serve(host: str = typer.Option(None, help="Bind address (default from settings)"),
           port: int = typer.Option(None, help="Port (default from settings)")) -> None:
     """Run the web app and API."""
