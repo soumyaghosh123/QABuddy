@@ -3,9 +3,9 @@ import { fetchExamples, fetchHealth, fetchStats } from './api';
 import { ChatPanel } from './components/ChatPanel';
 import { EmptyState } from './components/EmptyState';
 import { SourcesPanel } from './components/SourcesPanel';
+import { Sidebar } from './components/Sidebar';
 import { SourceViewer } from './components/SourceViewer';
 import { StackBar } from './components/StackBar';
-import { TopBar } from './components/TopBar';
 import { streamChat } from './sse';
 import type { Health, SourceHit, SourceOption, Turn } from './types';
 
@@ -22,6 +22,7 @@ export default function App() {
   const [selectedTurn, setSelectedTurn] = useState<number | null>(null);
   const [activeCite, setActiveCite] = useState<number | null>(null);
   const [viewer, setViewer] = useState<SourceHit | null>(null);
+  const [drawer, setDrawer] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const nextId = useRef(1);
   const streaming = turns.some((t) => t.streaming);
@@ -40,6 +41,13 @@ export default function App() {
     const timer = window.setInterval(poll, 15000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!drawer) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setDrawer(false);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [drawer]);
 
   const update = (id: number, change: (turn: Turn) => Partial<Turn>) =>
     setTurns((all) => all.map((t) => (t.id === id ? { ...t, ...change(t) } : t)));
@@ -85,9 +93,8 @@ export default function App() {
     setSelectedTurn(null);
     setActiveCite(null);
     setViewer(null);
+    setDrawer(false);
   };
-  const toggleFilter = (id: string) =>
-    setFilters((current) => (current.includes(id) ? current.filter((f) => f !== id) : [...current, id]));
 
   const current = turns.find((t) => t.id === selectedTurn) ?? turns[turns.length - 1] ?? null;
 
@@ -99,31 +106,44 @@ export default function App() {
   };
 
   return (
-    <div className="app">
-      <TopBar
-        sources={sources}
-        selected={filters}
-        onToggle={toggleFilter}
-        onClear={() => setFilters([])}
-        onNewChat={newChat}
-      />
-      <StackBar health={health} error={healthError} />
-      <main className="layout">
+    <div className={`app${turns.length ? ' app--chat' : ''}${drawer ? ' app--drawer' : ''}`}>
+      <Sidebar sources={sources} filters={filters} onFiltersChange={setFilters} onNewChat={newChat} />
+      <div className="drawer-backdrop" aria-hidden="true" onClick={() => setDrawer(false)} />
+      <main className="main">
+        <header className="mobilebar">
+          <button type="button" className="icon-btn" aria-label="Open menu" onClick={() => setDrawer(true)}>
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+              <path d="M3 5h14M3 10h14M3 15h14" />
+            </svg>
+          </button>
+          <span className="brand">
+            <span className="brand__mark" aria-hidden="true">🧪</span>
+            <span className="brand__name">QABuddy.ai</span>
+          </span>
+          <button type="button" className="icon-btn" aria-label="New chat" onClick={newChat}>
+            <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+              <path d="M8 3v10M3 8h10" />
+            </svg>
+          </button>
+        </header>
+        <StackBar health={health} error={healthError} />
         <section className="chat" aria-label="Conversation">
-          {turns.length === 0 ? (
-            <EmptyState examples={examples} onPick={ask} />
-          ) : (
-            <ChatPanel
-              turns={turns}
-              selectedTurn={current?.id ?? null}
-              activeCite={activeCite}
-              onCite={onCite}
-              onSelectTurn={(id) => {
-                setSelectedTurn(id);
-                setActiveCite(null);
-              }}
-            />
-          )}
+          <div className="canvas">
+            {turns.length === 0 ? (
+              <EmptyState examples={examples} onPick={ask} />
+            ) : (
+              <ChatPanel
+                turns={turns}
+                selectedTurn={current?.id ?? null}
+                activeCite={activeCite}
+                onCite={onCite}
+                onSelectTurn={(id) => {
+                  setSelectedTurn(id);
+                  setActiveCite(null);
+                }}
+              />
+            )}
+          </div>
           <form
             className="composer"
             onSubmit={(e) => {
@@ -143,7 +163,7 @@ export default function App() {
               placeholder={
                 filters.length ? `Ask about ${filters.length} selected source(s)…` : 'Ask about tests, failures, code, tickets…'
               }
-              rows={2}
+              rows={1}
               maxLength={2000}
               aria-label="Question"
             />
@@ -158,13 +178,15 @@ export default function App() {
             )}
           </form>
         </section>
+      </main>
+      {turns.length > 0 && (
         <aside className="sources" aria-label="Sources">
           <SourcesPanel turn={current} activeCite={activeCite} onOpen={(hit) => {
             setActiveCite(hit.n);
             setViewer(hit);
           }} />
         </aside>
-      </main>
+      )}
       {viewer && <SourceViewer hit={viewer} onClose={() => setViewer(null)} />}
     </div>
   );
