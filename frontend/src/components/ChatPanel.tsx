@@ -65,6 +65,7 @@ export function ChatPanel({ turns, selectedTurn, activeCite, onCite, onSelectTur
               <Answer
                 text={turn.answer + (turn.streaming ? ' ▍' : '')}
                 activeCite={selectedTurn === turn.id ? activeCite : null}
+                matches={turn.matches}
                 onCite={(n) => onCite(turn.id, n)}
               />
             )}

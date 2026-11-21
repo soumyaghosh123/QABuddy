@@ -135,6 +135,22 @@ class Database:
     def index_version(self) -> int:
         return int(self.get_meta("index_version") or 0)
 
+    # ---- shareable state (files, entities, meta)
+    _STATE_TABLES = ("files", "entities", "meta")
+
+    def export_state(self) -> dict:
+        with closing(self._connect()) as conn:
+            return {t: [list(r) for r in conn.execute(f"SELECT * FROM {t}")] for t in self._STATE_TABLES}
+
+    def import_state(self, state: dict) -> None:
+        """Replace files, entities and meta with `state` (not a merge)."""
+        with closing(self._connect()) as conn, conn:
+            for table in self._STATE_TABLES:
+                rows = state.get(table, [])
+                conn.execute(f"DELETE FROM {table}")
+                if rows:
+                    conn.executemany(f"INSERT INTO {table} VALUES ({','.join('?' * len(rows[0]))})", rows)
+
     # ---- answer cache
     def cache_get(self, key: str, index_version: int) -> dict | None:
         with closing(self._connect()) as conn:
@@ -143,11 +159,15 @@ class Database:
         if not row:
             return None
         record = dict(row)
-        record["sources"] = json.loads(record.pop("sources_json"))
+        stored = json.loads(record.pop("sources_json"))
+        # Older rows hold a bare sources list; newer ones wrap {"sources": [...], "matches": [...]}.
+        record["sources"] = stored["sources"] if isinstance(stored, dict) else stored
+        record["matches"] = stored.get("matches", []) if isinstance(stored, dict) else []
         return record
 
     def cache_put(self, key: str, index_version: int, question: str, filters: str, answer: str,
-                  sources: list[dict]) -> None:
+                  sources: list[dict], matches: list[dict] | None = None) -> None:
+        stored = sources if matches is None else {"sources": sources, "matches": matches}
         with closing(self._connect()) as conn, conn:
             conn.execute("INSERT OR REPLACE INTO answer_cache VALUES (?,?,?,?,?,?,?)",
-                         (key, index_version, question, filters, answer, json.dumps(sources), time.time()))
+                         (key, index_version, question, filters, answer, json.dumps(stored), time.time()))

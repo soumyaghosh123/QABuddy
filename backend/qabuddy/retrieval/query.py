@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import Literal
 
 from qabuddy.ingest.normalize import expand_with_glossary, extract_ids, split_identifiers
 
@@ -36,6 +37,18 @@ def extract_query_ids(text: str, known: set[str]) -> list[str]:
     for value in extract_ids(text, known):
         add(value)
     return ids
+
+
+TESTCASE_INTENT_RE = re.compile(r"\btest ?cases?\b|\btc\b", re.IGNORECASE)
+STORY_INTENT_RE = re.compile(r"\buser ?stor(y|ies)\b|\bstor(y|ies)\b|\brequirements?\b", re.IGNORECASE)
+
+
+def detect_intent(question: str) -> Literal["find_testcases", "find_stories"] | None:
+    if TESTCASE_INTENT_RE.search(question):
+        return "find_testcases"
+    if STORY_INTENT_RE.search(question):
+        return "find_stories"
+    return None
 
 
 def _is_follow_up(question: str) -> bool:

@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from typing import Any, Mapping
 
 import yaml
 from pydantic import BaseModel, Field
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+# PyInstaller bundles config/ and frontend/dist next to the frozen modules, under sys._MEIPASS
+REPO_ROOT = Path(sys._MEIPASS) if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[2]
 CONFIG_DIR = REPO_ROOT / "config"
 ENV_PREFIX = "QABUDDY_"
 
@@ -20,6 +22,7 @@ class QdrantSettings(BaseModel):
     url_env: str = ""  # cloud: QDRANT_URL — replaces `url` when that env var is set
     api_key_env: str = ""  # cloud: QDRANT_API_KEY; empty → no key (local)
     meta_collection: str = "qabuddy_meta"
+    quantized: bool = False  # desktop: int8 scalar quantization, vectors and payload on disk
 
     def api_key(self, env: Mapping[str, str] | None = None) -> str | None:
         if not self.api_key_env:
@@ -100,10 +103,22 @@ class ApiSettings(BaseModel):
     port: int = 8000
 
 
+class DesktopSettings(BaseModel):
+    zephyr_ui_url: str = ("https://ausiex.atlassian.net/projects/{project}?selectedItem="
+                          "com.atlassian.plugins.atlassian-connect-plugin:com.kanoah.test-manager__main-project-page"
+                          "#!/v2/testCase/{key}")
+    jira_browse_url: str = "https://ausiex.atlassian.net/browse/{key}"
+    startup_skip_s: int = 3600
+    lock_ttl_s: int = 7200
+    attachment_max_mb: int = 20
+    github_host: str = "github.internal.ausiex.com"
+
+
 class Settings(BaseModel):
     profile: str = "local"  # "local" (laptop) or "cloud" (Vercel); picks config/settings.<profile>.yaml
     data_dir: str = "data"
     storage_dir: str = "storage"
+    sources_file: str = ""  # empty → config/sources.yaml
     qdrant: QdrantSettings = QdrantSettings()
     ollama: OllamaSettings = OllamaSettings()
     llm: LLMSettings = LLMSettings()
@@ -116,6 +131,11 @@ class Settings(BaseModel):
     chunking: ChunkingSettings = ChunkingSettings()
     prompt: PromptSettings = PromptSettings()
     api: ApiSettings = ApiSettings()
+    desktop: DesktopSettings = DesktopSettings()
+
+    @property
+    def sources_path(self) -> Path:
+        return _resolve(self.sources_file) if self.sources_file else CONFIG_DIR / "sources.yaml"
 
     @property
     def data_path(self) -> Path:

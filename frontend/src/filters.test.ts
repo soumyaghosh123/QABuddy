@@ -22,6 +22,21 @@ describe('applyMode', () => {
   });
 });
 
+describe('prefix modes', () => {
+  const DESKTOP = ['gh_ctx_web_automation', 'gh_ctx_api', 'zephyr_ausweb', 'zephyr_orion', 'confluence', 'jira_linked'];
+
+  it('prefix modes resolve gh_ ids', () => {
+    expect(applyMode('github', DESKTOP)).toEqual(['gh_ctx_web_automation', 'gh_ctx_api']);
+    expect(applyMode('zephyr', DESKTOP)).toEqual(['zephyr_ausweb', 'zephyr_orion']);
+    expect(applyMode('stories', DESKTOP)).toEqual(['confluence', 'jira_linked']);
+    expect(activeMode(['gh_ctx_api', 'gh_ctx_web_automation'], DESKTOP)).toBe('github');
+  });
+
+  it('a prefix mode with no matching source falls back to every source', () => {
+    expect(applyMode('github', ALL)).toEqual([]);
+  });
+});
+
 describe('toggleSource', () => {
   it('unticking one source while all are ticked keeps the rest', () => {
     expect(toggleSource([], 'jira', ALL)).toEqual(ALL.filter((s) => s !== 'jira'));

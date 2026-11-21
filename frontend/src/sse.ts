@@ -1,4 +1,4 @@
-import type { ChatError, ChatRequest, DoneInfo, SourceHit } from './types';
+import type { ChatError, ChatRequest, DoneInfo, Match, SourceHit } from './types';
 
 export interface SSEEvent {
   event: string;
@@ -33,6 +33,8 @@ export function parseSSE(chunk: string, buffer: { rest: string }): SSEEvent[] {
 
 export interface ChatHandlers {
   onSources: (hits: SourceHit[]) => void;
+  /** Desktop only: the grouped Matches list, sent after `sources`. */
+  onMatches?: (matches: Match[]) => void;
   onToken: (text: string) => void;
   onDone: (info: DoneInfo) => void;
   onError: (error: ChatError) => void;
@@ -71,6 +73,7 @@ export async function streamChat(request: ChatRequest, handlers: ChatHandlers, s
       if (done) break;
       for (const { event, data } of parseSSE(decoder.decode(value, { stream: true }), buffer)) {
         if (event === 'sources') handlers.onSources(data as SourceHit[]);
+        else if (event === 'matches') handlers.onMatches?.(data as Match[]);
         else if (event === 'token') handlers.onToken((data as { t: string }).t);
         else if (event === 'done') handlers.onDone(data as DoneInfo);
         else if (event === 'error') handlers.onError(data as ChatError);

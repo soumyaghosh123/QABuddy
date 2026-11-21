@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import re
 import unicodedata
 from pathlib import Path
@@ -42,6 +43,18 @@ def clean_text(text: str) -> str:
     text = "\n".join(line.rstrip() for line in text.split("\n"))
     text = re.sub(r"\n{4,}", "\n\n\n", text)
     return text.strip("\n")
+
+
+_HTML_BREAK_RE = re.compile(r"(?i)<br\s*/?>|</(?:p|li|div)\s*>")
+_HTML_TAG_RE = re.compile(r"<[^>]*>")
+
+
+def clean_html(text: str) -> str:
+    """Plain text from an HTML fragment: block ends become newlines, tags dropped, entities unescaped."""
+    text = _HTML_TAG_RE.sub("", _HTML_BREAK_RE.sub("\n", text or ""))
+    text = html.unescape(text).replace("\xa0", " ")
+    text = "\n".join(line.rstrip() for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"))
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
 def _is_secret(key: str) -> bool:

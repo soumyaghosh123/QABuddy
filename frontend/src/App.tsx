@@ -3,9 +3,13 @@ import { fetchExamples, fetchHealth, fetchStats } from './api';
 import { ChatPanel } from './components/ChatPanel';
 import { EmptyState } from './components/EmptyState';
 import { SourcesPanel } from './components/SourcesPanel';
+import { SettingsPanel } from './components/SettingsPanel';
 import { Sidebar } from './components/Sidebar';
+import type { View } from './components/Sidebar';
 import { SourceViewer } from './components/SourceViewer';
 import { StackBar } from './components/StackBar';
+import { TraceabilityPanel } from './components/TraceabilityPanel';
+import { streamSyncStatus } from './desktop';
 import { streamChat } from './sse';
 import type { Health, SourceHit, SourceOption, Turn } from './types';
 
@@ -16,6 +20,9 @@ export default function App() {
   const [input, setInput] = useState('');
   const [filters, setFilters] = useState<string[]>([]);
   const [sources, setSources] = useState<SourceOption[]>([]);
+  const [desktop, setDesktop] = useState(false);
+  const [view, setView] = useState<View>('chat');
+  const [bgSync, setBgSync] = useState(false);
   const [examples, setExamples] = useState<string[]>([]);
   const [health, setHealth] = useState<Health | null>(null);
   const [healthError, setHealthError] = useState(false);
@@ -27,8 +34,39 @@ export default function App() {
   const nextId = useRef(1);
   const streaming = turns.some((t) => t.streaming);
 
+  const refreshStats = useCallback(
+    () =>
+      fetchStats()
+        .then((s) => {
+          setSources(s.sources);
+          setDesktop(s.desktop === true);
+          return s.desktop === true;
+        })
+        .catch(() => false),
+    [],
+  );
+
   useEffect(() => {
-    fetchStats().then((s) => setSources(s.sources)).catch(() => undefined);
+    // Desktop only: follow a startup sync (if one is running) until it finishes.
+    const controller = new AbortController();
+    refreshStats().then((isDesktop) => {
+      if (!isDesktop || controller.signal.aborted) return;
+      void streamSyncStatus(
+        {
+          onProgress: () => setBgSync(true),
+          onSource: () => undefined,
+          onFinished: () => {
+            setBgSync(false);
+            void refreshStats();
+          },
+        },
+        controller.signal,
+      ).finally(() => setBgSync(false));
+    });
+    return () => controller.abort();
+  }, [refreshStats]);
+
+  useEffect(() => {
     fetchExamples().then(setExamples).catch(() => undefined);
     const poll = () =>
       fetchHealth()
@@ -64,7 +102,7 @@ export default function App() {
           { role: 'user' as const, content: t.question },
           { role: 'assistant' as const, content: t.answer },
         ]);
-      setTurns((all) => [...all, { id, question: text, answer: '', sources: [], streaming: true }]);
+      setTurns((all) => [...all, { id, question: text, answer: '', sources: [], matches: [], streaming: true }]);
       setSelectedTurn(id);
       setActiveCite(null);
       setInput('');
@@ -74,6 +112,7 @@ export default function App() {
         { question: text, sources: filters.length ? filters : undefined, history: history.length ? history : undefined },
         {
           onSources: (hits) => update(id, () => ({ sources: hits })),
+          onMatches: (matches) => update(id, () => ({ matches })),
           onToken: (t) => update(id, (turn) => ({ answer: turn.answer + t })),
           onDone: (done) => update(id, () => ({ done, streaming: false })),
           onError: (error) => update(id, () => ({ error })),
@@ -106,8 +145,22 @@ export default function App() {
   };
 
   return (
-    <div className={`app${turns.length ? ' app--chat' : ''}${drawer ? ' app--drawer' : ''}`}>
-      <Sidebar sources={sources} filters={filters} onFiltersChange={setFilters} onNewChat={newChat} />
+    <div className={`app${turns.length && view === 'chat' ? ' app--chat' : ''}${drawer ? ' app--drawer' : ''}`}>
+      <Sidebar
+        sources={sources}
+        filters={filters}
+        onFiltersChange={setFilters}
+        onNewChat={() => {
+          newChat();
+          setView('chat');
+        }}
+        desktop={desktop}
+        view={view}
+        onView={(v) => {
+          setView(v);
+          setDrawer(false);
+        }}
+      />
       <div className="drawer-backdrop" aria-hidden="true" onClick={() => setDrawer(false)} />
       <main className="main">
         <header className="mobilebar">
@@ -120,13 +173,29 @@ export default function App() {
             <span className="brand__mark" aria-hidden="true">🧪</span>
             <span className="brand__name">QABuddy.ai</span>
           </span>
-          <button type="button" className="icon-btn" aria-label="New chat" onClick={newChat}>
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label="New chat"
+            onClick={() => {
+              newChat();
+              setView('chat');
+            }}
+          >
             <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
               <path d="M8 3v10M3 8h10" />
             </svg>
           </button>
         </header>
         <StackBar health={health} error={healthError} />
+        {bgSync && (
+          <p className="notice notice--warn banner" role="status">
+            Syncing in the background…
+          </p>
+        )}
+        {desktop && view === 'settings' && <SettingsPanel indexedSources={sources.length} onSynced={() => void refreshStats()} />}
+        {desktop && view === 'traceability' && <TraceabilityPanel />}
+        {view === 'chat' && (
         <section className="chat" aria-label="Conversation">
           <div className="canvas">
             {turns.length === 0 ? (
@@ -178,8 +247,9 @@ export default function App() {
             )}
           </form>
         </section>
+        )}
       </main>
-      {turns.length > 0 && (
+      {turns.length > 0 && view === 'chat' && (
         <aside className="sources" aria-label="Sources">
           <SourcesPanel turn={current} activeCite={activeCite} onOpen={(hit) => {
             setActiveCite(hit.n);
