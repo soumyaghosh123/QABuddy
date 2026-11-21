@@ -1,4 +1,4 @@
-import { MODES, activeMode, applyMode, toggleSource } from '../filters';
+import { MODES, activeMode, applyMode, modeSources, toggleSource } from '../filters';
 import { sourceIcon } from '../sourceMeta';
 import type { SourceOption } from '../types';
 
@@ -7,13 +7,22 @@ interface Props {
   filters: string[];
   onFiltersChange: (filters: string[]) => void;
   onNewChat: () => void;
+  /** Desktop build only: shows the Traceability and Settings entries. */
+  desktop?: boolean;
+  view?: View;
+  onView?: (view: View) => void;
 }
 
-export function Sidebar({ sources, filters, onFiltersChange, onNewChat }: Props) {
+export type View = 'chat' | 'settings' | 'traceability';
+
+export function Sidebar({ sources, filters, onFiltersChange, onNewChat, desktop = false, view = 'chat', onView }: Props) {
   const available = sources.map((s) => s.id);
   const current = activeMode(filters, available);
   // A mode whose sources are all missing would silently mean "everything", so hide it.
-  const modes = MODES.filter((m) => !m.sources || m.sources.some((id) => available.includes(id)));
+  const modes = MODES.filter((m) => {
+    const ids = modeSources(m, available);
+    return !ids || ids.some((id) => available.includes(id));
+  });
 
   return (
     <aside className="sidebar" aria-label="QABuddy navigation">
@@ -45,6 +54,28 @@ export function Sidebar({ sources, filters, onFiltersChange, onNewChat }: Props)
           </button>
         ))}
       </nav>
+      {desktop && (
+        <nav className="sidebar__section" aria-label="Tools">
+          <h2 className="sidebar__label">Tools</h2>
+          {(
+            [
+              ['traceability', '🔗', 'Traceability'],
+              ['settings', '⚙️', 'Settings'],
+            ] as const
+          ).map(([id, icon, label]) => (
+            <button
+              key={id}
+              type="button"
+              className={`mode${view === id ? ' mode--on' : ''}`}
+              aria-pressed={view === id}
+              onClick={() => onView?.(view === id ? 'chat' : id)}
+            >
+              <span className="mode__icon" aria-hidden="true">{icon}</span>
+              {label}
+            </button>
+          ))}
+        </nav>
+      )}
       <fieldset className="sidebar__section sidebar__sources">
         <legend className="sidebar__label">Knowledge sources</legend>
         {sources.map((s) => (

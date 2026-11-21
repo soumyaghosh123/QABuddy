@@ -25,11 +25,13 @@ class Hit:
     snippet: str
     score: float
     parent_id: str = ""
+    meta: dict = field(default_factory=dict)
 
     def public(self) -> dict:
         data = asdict(self)
         data.pop("text")
         data.pop("parent_id")
+        data.pop("meta")
         return data
 
 
@@ -51,6 +53,20 @@ def apply_diversity(hits: list[Hit], max_per_parent: int) -> list[Hit]:
     return kept
 
 
+def _wanted(hit: Hit, intent: str) -> bool:
+    if intent == "find_testcases":
+        return hit.source.startswith("zephyr_")
+    return hit.source in ("confluence", "jira_linked")
+
+
+def boost_by_intent(hits: list[Hit], intent: str | None, min_score: float) -> list[Hit]:
+    """Stable partition: wanted-type hits scoring >= min_score first; scores are untouched."""
+    if intent is None:
+        return hits
+    front = [h for h in hits if _wanted(h, intent) and h.score >= min_score]
+    return front + [h for h in hits if h not in front]
+
+
 class Searcher:
     def __init__(self, settings: Settings, store, dense, sparse, reranker, catalog, glossary: dict):
         self.settings, self.store, self.dense, self.sparse = settings, store, dense, sparse
@@ -66,7 +82,7 @@ class Searcher:
         return self._known
 
     def search(self, question: str, history: list[dict] | None = None, sources: list[str] | None = None) -> SearchResult:
-        from qabuddy.retrieval.query import prepare_query
+        from qabuddy.retrieval.query import detect_intent, prepare_query
 
         cfg = self.settings.retrieval
         started = time.perf_counter()
@@ -85,13 +101,15 @@ class Searcher:
                 source=c.payload.get("source", ""), kind=c.payload.get("kind", ""), path=c.payload.get("path", ""),
                 location=c.payload.get("location", {}), header=c.payload.get("header", ""),
                 text=c.payload.get("text", ""), snippet=c.payload.get("text", "")[:SNIPPET_CHARS],
-                score=round(float(score), 4), parent_id=c.payload.get("parent_id", ""))
+                score=round(float(score), 4), parent_id=c.payload.get("parent_id", ""),
+                meta=c.payload.get("meta") or {})
             for c, score in ranked
         ]
+        hits = boost_by_intent(hits, detect_intent(question), cfg.min_rerank_score)
         hits = apply_diversity(hits, cfg.max_per_parent)[: cfg.top_k]
         for index, hit in enumerate(hits, 1):
             hit.n = index
-        no_answer = not hits or hits[0].score < cfg.min_rerank_score
+        no_answer = not hits or max(h.score for h in hits) < cfg.min_rerank_score
         finished = time.perf_counter()
         return SearchResult(hits, no_answer, {"retrieve": round((retrieved - started) * 1000),
                                               "rerank": round((finished - retrieved) * 1000)})

@@ -157,3 +157,53 @@ def test_search_build_142(settings):
         pytest.skip("index is empty; run `qabuddy ingest` first")
     result = searcher.search("Why did testLoginPositiveVWO fail in build 142?")
     assert any(h.source == "jenkins" for h in result.hits)
+
+
+@pytest.mark.parametrize("question,expected", [
+    ("test cases for account closure with open position", "find_testcases"),
+    ("Which TC covers login?", "find_testcases"),
+    ("user story for retrieving the Client/Adviser file", "find_stories"),
+    ("what are the requirements for onboarding", "find_stories"),
+    ("test case and user story for login", "find_testcases"),
+    ("how does login work", None),
+])
+def test_detect_intent(question, expected):
+    from qabuddy.retrieval.query import detect_intent
+
+    assert detect_intent(question) == expected
+
+
+class MixedStore:
+    def hybrid(self, dense_q, sparse_q, ids, sources, dense_k, sparse_k, id_k, limit):
+        kinds = [("jenkins", "log"), ("zephyr_ABC", "testcase"), ("confluence", "confluence"),
+                 ("zephyr_ABC", "testcase")]
+        return [ScoredChunk(str(i), 0.5, {"chunk_id": str(i), "citation": f"c{i}", "source": s, "kind": k, "path": "p",
+                                          "location": {}, "header": "h", "text": "t", "parent_id": f"p{i}",
+                                          "meta": {"name": f"n{i}"}}) for i, (s, k) in enumerate(kinds)]
+
+
+def test_boost_orders_testcases_first(settings):
+    searcher = Searcher(settings, MixedStore(), FakeDense(), FakeSparse(), FakeReranker([4.0, 3.0, 2.0, 1.0]),
+                        FakeDb(), {})
+    plain = searcher.search("how does login work")
+    assert [h.chunk_id for h in plain.hits] == ["0", "1", "2", "3"]
+    boosted = searcher.search("find test cases for login")
+    assert [h.chunk_id for h in boosted.hits] == ["1", "3", "0", "2"]  # stable partition
+    assert [h.score for h in boosted.hits] == [3.0, 1.0, 4.0, 2.0]
+    assert [h.n for h in boosted.hits] == [1, 2, 3, 4]
+    assert boosted.hits[0].meta == {"name": "n1"} and "meta" not in boosted.hits[0].public()
+    stories = searcher.search("user stories about login")
+    assert [h.chunk_id for h in stories.hits] == ["2", "0", "1", "3"]
+
+
+def test_boost_ignores_below_threshold_hits_and_no_answer_uses_best_score(settings):
+    searcher = Searcher(settings, MixedStore(), FakeDense(), FakeSparse(), FakeReranker([4.0, -5.0, 2.0, -6.0]),
+                        FakeDb(), {})
+    result = searcher.search("find test cases for login")
+    assert [h.chunk_id for h in result.hits] == ["0", "2", "1", "3"]  # weak zephyr hits not moved up
+    assert result.no_answer is False
+    strong = Searcher(settings, MixedStore(), FakeDense(), FakeSparse(), FakeReranker([4.0, 1.0, 2.0, -6.0]),
+                      FakeDb(), {}).search("find test cases for login")
+    assert [h.chunk_id for h in strong.hits] == ["1", "0", "2", "3"]  # only the above-threshold zephyr hit moves
+    assert strong.no_answer is False
+

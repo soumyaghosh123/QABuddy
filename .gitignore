@@ -29,3 +29,10 @@ frontend/dist/
 
 .vercel
 .env*
+
+# Desktop build output (PyInstaller)
+build/
+dist/
+
+# Recovery backups of the damaged copy (local only)
+*.broken-backup/

@@ -51,6 +51,21 @@ describe('Sidebar', () => {
     expect(screen.getByRole('button', { name: /General QA/ })).toBeTruthy();
   });
 
+  it('sidebar hides desktop entries when stats.desktop is false', () => {
+    renderSidebar();
+    expect(screen.queryByRole('button', { name: /Settings/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Traceability/ })).toBeNull();
+  });
+
+  it('desktop shows Settings and Traceability and switches the view', () => {
+    const onView = vi.fn();
+    render(<Sidebar sources={sources} filters={[]} onFiltersChange={vi.fn()} onNewChat={vi.fn()} desktop view="chat" onView={onView} />);
+    fireEvent.click(screen.getByRole('button', { name: /Settings/ }));
+    expect(onView).toHaveBeenCalledWith('settings');
+    fireEvent.click(screen.getByRole('button', { name: /Traceability/ }));
+    expect(onView).toHaveBeenCalledWith('traceability');
+  });
+
   it('New chat starts over', () => {
     const { onNewChat } = renderSidebar();
     fireEvent.click(screen.getByRole('button', { name: /New chat/ }));

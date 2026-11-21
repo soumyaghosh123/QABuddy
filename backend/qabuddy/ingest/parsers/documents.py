@@ -14,6 +14,7 @@ from qabuddy.ingest.normalize import clean_text, mask_secrets, read_text
 
 log = logging.getLogger(__name__)
 SKIP_LABELS = {"page_header", "page_footer", "picture", "caption"}
+OFFICE_EXTS = {".docx", ".xlsx", ".pptx"}
 
 
 def title_from_path(path: Path) -> str:
@@ -92,6 +93,18 @@ def _docling_converter():
     return DocumentConverter(format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=options)})
 
 
+@lru_cache(maxsize=1)
+def _office_converter():
+    from docling.document_converter import DocumentConverter
+
+    return DocumentConverter()
+
+
+def office_to_sections(path: Path, title: str) -> list[Section]:
+    markdown = _office_converter().convert(str(path)).document.export_to_markdown()
+    return split_markdown(mask_secrets(clean_text(markdown), kv_lines=False), title)
+
+
 def _docling_lines(path: Path) -> tuple[list[str], list[int]]:
     """Return Markdown-ish lines and the page number of each line."""
     document = _docling_converter().convert(str(path)).document
@@ -160,6 +173,8 @@ def parse_document(sf: SourceFile, ctx: ParseContext) -> list[Chunk]:
     if sf.abs_path.suffix.lower() == ".pdf":
         sections, pages = pdf_to_sections(sf.abs_path, title)
         return sections_to_chunks(sf, ctx, sections, title, "doc_section", page_mode=True, line_pages=pages)
+    if sf.abs_path.suffix.lower() in OFFICE_EXTS:
+        return sections_to_chunks(sf, ctx, office_to_sections(sf.abs_path, title), title, "doc_section")
     return markdown_chunks(sf, ctx, "doc_section", title=title)
 
 

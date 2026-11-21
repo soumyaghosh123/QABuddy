@@ -66,14 +66,19 @@ class VectorStore:
     def exists(self) -> bool:
         return self._call(self.client.collection_exists, self.collection)
 
-    def ensure_collection(self, dim: int) -> None:
+    def ensure_collection(self, dim: int, quantized: bool = False) -> None:
         if self.exists():
             return
+        quantization = models.ScalarQuantization(
+            scalar=models.ScalarQuantizationConfig(type=models.ScalarType.INT8, always_ram=True)) if quantized else None
         self._call(
             self.client.create_collection,
             collection_name=self.collection,
-            vectors_config={"dense": models.VectorParams(size=dim, distance=models.Distance.COSINE)},
+            vectors_config={"dense": models.VectorParams(size=dim, distance=models.Distance.COSINE,
+                                                         on_disk=True if quantized else None)},
             sparse_vectors_config={"bm25": models.SparseVectorParams(modifier=models.Modifier.IDF)},
+            quantization_config=quantization,
+            on_disk_payload=True if quantized else None,
         )
         for field in PAYLOAD_INDEXES:
             self.client.create_payload_index(self.collection, field_name=field,
@@ -99,6 +104,23 @@ class VectorStore:
                                         with_payload=True, with_vectors=with_vectors)
             for p in points:
                 yield str(p.id), p.payload or {}, (p.vector or {}) if with_vectors else {}
+            if offset is None:
+                return
+
+    def scroll_sources(self, prefixes: list[str], batch: int = 256) -> Iterator[dict]:
+        """Payloads of every point whose `source` starts with one of the prefixes."""
+        if not prefixes or not self.exists():
+            return
+        # Qdrant has no prefix match on keyword fields, so filter client-side while scrolling payloads only.
+        wanted = tuple(prefixes)
+        offset = None
+        while True:
+            points, offset = self._call(self.client.scroll, self.collection, limit=batch, offset=offset,
+                                        with_payload=True, with_vectors=False)
+            for p in points:
+                payload = p.payload or {}
+                if str(payload.get("source", "")).startswith(wanted):
+                    yield payload
             if offset is None:
                 return
 

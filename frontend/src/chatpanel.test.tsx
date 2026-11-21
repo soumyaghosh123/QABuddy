@@ -9,6 +9,7 @@ const turn: Turn = {
   answer: 'The NAT IP is not allowlisted [1].',
   sources: [],
   streaming: false,
+  matches: [],
 };
 
 describe('ChatPanel', () => {

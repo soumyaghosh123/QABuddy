@@ -17,10 +17,15 @@ _REGISTRY: dict[str, tuple[str, str]] = {
     "code": ("qabuddy.ingest.parsers.code", "parse_code"),
     "testcases": ("qabuddy.ingest.parsers.testcases", "parse_testcases"),
     "jira": ("qabuddy.ingest.parsers.jira", "parse_jira_markdown"),
+    "jira_api": ("qabuddy.ingest.parsers.jira_api", "parse_jira_json"),
     "documents": ("qabuddy.ingest.parsers.documents", "parse_document"),
     "meetings": ("qabuddy.ingest.parsers.meetings", "parse_meeting"),
     "lucid": ("qabuddy.ingest.parsers.lucid", "parse_lucid"),
+    "gherkin": ("qabuddy.ingest.parsers.gherkin", "parse_gherkin"),
     "jenkins": ("qabuddy.ingest.parsers.jenkins", "parse_jenkins"),
+    "zephyr": ("qabuddy.ingest.parsers.zephyr", "parse_zephyr"),
+    "confluence": ("qabuddy.ingest.parsers.confluence", "parse_confluence_page"),
+    "confluence_attachment": ("qabuddy.ingest.parsers.confluence", "parse_confluence_attachment"),
 }
 
 

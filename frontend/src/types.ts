@@ -39,6 +39,7 @@ export interface Turn {
   done?: DoneInfo;
   error?: ChatError;
   streaming: boolean;
+  matches: Match[];
 }
 
 export interface StackPill {
@@ -71,4 +72,78 @@ export interface ChunkDetail {
   breadcrumb: string[];
   header: string;
   text: string;
+}
+
+export interface Match {
+  type: 'testcase' | 'story' | 'page' | 'scenario' | 'code' | 'other';
+  key: string;
+  name: string;
+  where: string;
+  status: string;
+  url: string;
+  n: number[];
+}
+
+export interface Stats {
+  by_source: Record<string, number>;
+  files: number;
+  failed_files: { path: string; error: string }[];
+  sources: SourceOption[];
+  desktop: boolean;
+}
+
+export interface Inputs {
+  github_repos: string[];
+  zephyr_projects: string[];
+  confluence_spaces: string[];
+  updated_by: string;
+  updated_at: number | string | null;
+}
+
+export interface Measurement {
+  pages: number;
+  attachments: number;
+  indexable_attachments: number;
+  attachment_mb: number;
+  est_chunks: number;
+  est_ram_mb: number;
+  est_embed_calls: number;
+}
+
+export interface LastSync {
+  finished_at: number;
+  machine: string;
+  pending: boolean;
+  sources: Record<string, { ok: boolean; error?: string }>;
+}
+
+export interface TraceRow {
+  story_key: string;
+  story_title: string;
+  testcase_key: string;
+  testcase_name: string;
+  status: string;
+  automated: string;
+  gap: string;
+}
+
+export interface TraceSummary {
+  stories: number;
+  stories_covered: number;
+  coverage_pct: number;
+  testcases: number;
+  automated_pct: number;
+  suggestions: number;
+}
+
+export interface TraceResult {
+  rows: TraceRow[];
+  summary: TraceSummary;
+}
+
+export interface TraceRequest {
+  scope: 'story' | 'folder' | 'project';
+  value: string;
+  project?: string;
+  include_suggested: boolean;
 }

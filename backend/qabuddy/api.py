@@ -7,6 +7,7 @@ import json
 import logging
 import re
 import time
+from dataclasses import asdict
 from pathlib import Path
 from typing import Iterator
 
@@ -19,13 +20,14 @@ from pydantic import BaseModel
 
 from qabuddy.answer.llm import LLMUnavailable, make_llm
 from qabuddy.answer.prompt import build_messages, check_citations
-from qabuddy.catalog import make_catalog
+from qabuddy.catalog import make_catalog, read_manifest
 from qabuddy.config import REPO_ROOT, Settings
 from qabuddy.db import Database
 from qabuddy.health import check_health
 from qabuddy.index.store import IndexUnavailable, make_store
 from qabuddy.inference.errors import InferenceUnavailable
 from qabuddy.ingest.discover import load_sources
+from qabuddy.retrieval.matches import group_matches
 
 log = logging.getLogger(__name__)
 MAX_QUESTION_CHARS = 2000
@@ -55,13 +57,15 @@ def _cache_key(question: str, sources: list[str] | None) -> str:
 
 
 def create_app(settings: Settings, searcher=None, llm=None, db: Database | None = None, catalog=None,
-               http_client: httpx.Client | None = None) -> FastAPI:
+               http_client: httpx.Client | None = None, desktop=None) -> FastAPI:
     app = FastAPI(title="QABuddy.ai", version="0.1.0")
     state: dict = {"searcher": searcher, "llm": llm}
     database = db or Database(settings.cache_db_path)  # answer cache; /tmp on Vercel
     database.init()
     catalog = catalog or make_catalog(settings, db=database if settings.cache_db_path == settings.db_path else None)
-    source_ids = {s.id for s in load_sources(settings.config_path / "sources.yaml") if s.enabled}
+    is_desktop = settings.profile == "desktop"
+    # Desktop sources change with every sync (read live from the manifest); web sources are fixed at start.
+    source_ids = set() if is_desktop else {s.id for s in load_sources(settings.sources_path) if s.enabled}
 
     def get_searcher():
         if state["searcher"] is None:
@@ -75,6 +79,17 @@ def create_app(settings: Settings, searcher=None, llm=None, db: Database | None 
             state["llm"] = make_llm(settings)
         return state["llm"]
 
+    if is_desktop:  # desktop-only code is imported and built here so web profiles never touch it
+        from qabuddy.desktop.routes import SyncStatus, build_router
+        from qabuddy.desktop.wiring import build_desktop
+
+        app.state.desktop = desktop or build_desktop(settings)
+        app.state.sync_status = SyncStatus()
+
+        @app.exception_handler(IndexUnavailable)
+        async def store_down(_: Request, exc: IndexUnavailable):
+            return JSONResponse(status_code=503, content={"code": "index_unavailable", "message": str(exc)})
+
     @app.exception_handler(HTTPException)
     async def http_error(_: Request, exc: HTTPException):
         detail = exc.detail if isinstance(exc.detail, dict) else {"code": "error", "message": str(exc.detail)}
@@ -83,6 +98,10 @@ def create_app(settings: Settings, searcher=None, llm=None, db: Database | None 
     def bad_request(message: str) -> HTTPException:
         return HTTPException(400, {"code": "bad_request", "message": message})
 
+    def desktop_labels() -> dict[str, str]:
+        """Source id → label from the shared manifest (no manifest yet: no sources)."""
+        return (read_manifest(app.state.desktop.store, settings.qdrant.meta_collection) or {}).get("labels", {})
+
     @app.post("/api/chat")
     def chat(request: ChatRequest) -> StreamingResponse:
         question = request.question.strip()
@@ -90,7 +109,8 @@ def create_app(settings: Settings, searcher=None, llm=None, db: Database | None 
             raise bad_request("Question is empty.")
         if len(request.question) > MAX_QUESTION_CHARS:
             raise bad_request(f"Question is longer than {MAX_QUESTION_CHARS} characters.")
-        unknown = sorted(set(request.sources or []) - source_ids)
+        known = set(desktop_labels()) if is_desktop and request.sources else source_ids
+        unknown = sorted(set(request.sources or []) - known)
         if unknown:
             raise bad_request(f"Unknown source(s): {', '.join(unknown)}")
         history = [m.model_dump() for m in request.history or []]
@@ -120,6 +140,8 @@ def create_app(settings: Settings, searcher=None, llm=None, db: Database | None 
             cached = database.cache_get(cache_key, version)
             if cached:
                 yield _sse("sources", cached["sources"])
+                if is_desktop:  # the Matches list is a desktop feature; the web stream is unchanged
+                    yield _sse("matches", cached.get("matches", []))
                 yield _sse("token", {"t": cached["answer"]})
                 used, uncited = check_citations(cached["answer"], len(cached["sources"]))
                 yield done(citations_used=used, uncited=uncited, cached=True)
@@ -143,6 +165,9 @@ def create_app(settings: Settings, searcher=None, llm=None, db: Database | None 
         timings.update(result.timings)
         public_hits = [h.public() for h in result.hits]
         yield _sse("sources", public_hits)
+        match_rows = [asdict(m) for m in group_matches(result.hits)] if is_desktop else []
+        if is_desktop:
+            yield _sse("matches", match_rows)
 
         if result.no_answer:
             yield _sse("token", {"t": NO_ANSWER_TEXT})
@@ -172,7 +197,7 @@ def create_app(settings: Settings, searcher=None, llm=None, db: Database | None 
         answer = "".join(answer_parts)
         used, uncited = check_citations(answer, len(used_hits))
         if not history and answer and not uncited:
-            database.cache_put(cache_key, version, question, ",".join(sources or []), answer, public_hits)
+            database.cache_put(cache_key, version, question, ",".join(sources or []), answer, public_hits, match_rows)
         yield done(citations_used=used, uncited=uncited)
 
     def get_store():
@@ -201,9 +226,16 @@ def create_app(settings: Settings, searcher=None, llm=None, db: Database | None 
         try:
             body = catalog.stats()
         except IndexUnavailable as exc:
-            raise HTTPException(503, {"code": "index_unavailable", "message": str(exc)})
-        return {**body, "sources": [{"id": s.id, "label": s.label}
-                                    for s in load_sources(settings.config_path / "sources.yaml") if s.enabled]}
+            if not is_desktop:
+                raise HTTPException(503, {"code": "index_unavailable", "message": str(exc)})
+            # Desktop: still answer, so the UI keeps Settings reachable and can show the outage.
+            return {"by_source": {}, "files": 0, "failed_files": [], "sources": [], "desktop": True,
+                    "index_error": str(exc)}
+        if is_desktop:
+            sources = [{"id": k, "label": v} for k, v in desktop_labels().items()]
+        else:
+            sources = [{"id": s.id, "label": s.label} for s in load_sources(settings.sources_path) if s.enabled]
+        return {**body, "sources": sources, "desktop": is_desktop}
 
     @app.get("/api/examples")
     def examples() -> list[str]:
@@ -212,6 +244,9 @@ def create_app(settings: Settings, searcher=None, llm=None, db: Database | None 
             return []
         items = yaml.safe_load(path.read_text(encoding="utf-8")) or []
         return [q["q"] for q in items if q.get("example")][:6]
+
+    if is_desktop:
+        app.include_router(build_router(settings, app, get_searcher))
 
     if FRONTEND_DIST.exists():
         app.mount("/", StaticFiles(directory=Path(FRONTEND_DIST), html=True), name="ui")

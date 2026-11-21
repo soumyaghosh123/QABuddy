@@ -1,6 +1,6 @@
 [project]
 name = "qabuddy"
-version = "0.1.0"
+version = "0.2.0"
 description = "QABuddy.ai: local hybrid RAG assistant for QA engineers"
 requires-python = ">=3.12,<3.13"
 dependencies = [
@@ -29,6 +29,7 @@ qabuddy = "qabuddy.cli:app"
 
 [dependency-groups]
 dev = ["pytest>=8.0"]
+desktop = ["pyinstaller>=6.10", "pywebview>=5.0"]
 
 [build-system]
 requires = ["hatchling"]

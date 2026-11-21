@@ -1,0 +1,18 @@
+# Desktop profile (QABUDDY_PROFILE=desktop). data_dir/storage_dir/sources_file are set by the desktop entry point.
+qdrant:
+  url: ""
+  url_env: QDRANT_URL
+  api_key_env: QDRANT_API_KEY
+  collection: qabuddy_internal
+  meta_collection: qabuddy_internal_meta
+  quantized: true
+embeddings:
+  provider: cloudflare
+reranker:
+  provider: cloudflare
+llm:
+  provider: deepseek
+catalog:
+  provider: manifest
+retrieval:
+  min_rerank_score: 0.0194
