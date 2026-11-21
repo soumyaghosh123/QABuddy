@@ -19,6 +19,16 @@ Search runs locally on free, open-source parts. The answer is written by DeepSee
 
 - Design: [docs/superpowers/specs/2026-10-05-qabuddy-phase1-local-design.md](docs/superpowers/specs/2026-10-05-qabuddy-phase1-local-design.md)
 - Build plan: [docs/superpowers/plans/2026-10-05-qabuddy-phase1-local.md](docs/superpowers/plans/2026-10-05-qabuddy-phase1-local.md)
+- Desktop app: [docs/desktop.md](docs/desktop.md)
+
+## Status
+
+| Part | State |
+|---|---|
+| Web app (this README) | Working: indexing, hybrid search, reranking, cited answers, web UI |
+| Desktop app (Windows, GitHub/Zephyr/Confluence sync, traceability matrix) | Being rebuilt. Part of its source was lost in a damaged copy in Oct 2026. Routes, shared state, the GitHub/Confluence/Jira connectors, traceability and the Matches table are restored; `desktop/wiring`, `secrets`, `sources`, `paths`, the Zephyr connector, the Confluence parser and the Settings/Traceability panels are still to do |
+
+The desktop pieces only load in the `desktop` profile, so the web app is unaffected by the missing parts.
 
 ## Prerequisites (Windows)
 
@@ -43,8 +53,20 @@ powershell -ExecutionPolicy Bypass -File scripts\setup.ps1
 The setup script does four things:
 1. Installs the Python dependencies.
 2. Downloads Qdrant into `tools\qdrant\`.
-3. Pulls the two Ollama models.
+3. Pulls the two Ollama models. With `llm.provider: deepseek` (the default) only the embedding model is used, so you can skip the 2.5 GB chat model: `ollama pull qwen3-embedding:0.6b`.
 4. Builds the web UI.
+
+## Sample data
+
+`data/` is not stored in this repo (it is in `.gitignore`). To get the sample data the tests and the eval set expect:
+
+| Folder | Source |
+|---|---|
+| `data/00_TestCases` … `data/06_Jenkins_Logs` | [`chapter_12_RAG_QA_BuddyAI/data`](https://github.com/PramodDutta/AITesterBlueprint4x/tree/main/chapter_12_RAG_QA_BuddyAI/data) in PramodDutta/AITesterBlueprint4x |
+| `data/07_Source_Codes/01_selenium_framework/ATB13xSeleniumAdvanceFramework-main` | [PramodDutta/ATB13xSeleniumAdvanceFramework](https://github.com/PramodDutta/ATB13xSeleniumAdvanceFramework) |
+| `data/07_Source_Codes/02_playwright_framework/Advance-Playwright-Framework-main` | [PramodDutta/Advance-Playwright-Framework](https://github.com/PramodDutta/Advance-Playwright-Framework) |
+
+Copy the files in with the folder names shown, then index them (below).
 
 ## Run
 
@@ -103,7 +125,8 @@ Measured on 2026-10-05 with Chrome, Zoom and other apps open.
 
 | Step | Time |
 |---|---|
-| Full first index (146 files → 1,162 chunks) | 94 min (`ingest --full`, CPU embedding) |
+| Full first index (146 files → 1,162 chunks) | 94 min (`ingest --full`, CPU embedding, 2026-10-05) |
+| Full first index (144 files → 1,160 chunks) | 24 min (`ingest`, CPU embedding, re-measured 2026-11-21) |
 | Question → sources shown | 7.5–8 s; 15 s for the first question after Ollama unloads the embedding model |
 | Question → first answer word (`deepseek-flash`) | +0.6–0.8 s after the sources |
 | Question → full answer (`deepseek-flash`) | 9–10 s; 17 s for the first question |
@@ -126,11 +149,13 @@ Where a warm question's time goes: embedding and hybrid search take about 2.3 s,
 ## Layout
 
 ```
-backend/qabuddy/   ingest/ (discover, normalize, chunking, parsers/*, pipeline)
-                   index/ (embedder, store) · retrieval/ (query, reranker, search)
+backend/qabuddy/   ingest/ (discover, normalize, chunking, parsers/*, connectors/*, pipeline)
+                   index/ (embedder, store) · retrieval/ (query, reranker, search, matches)
                    answer/ (prompt, llm) · api.py · cli.py · db.py · evaluate.py
-frontend/src/      React UI (chat, sources panel, source viewer)
-config/            settings, sources, glossary
+                   desktop/ (app, routes, meta, inputs, sync) · traceability.py
+frontend/src/      React UI (chat, sources panel, source viewer; desktop.ts + Settings/Traceability panels in the desktop app)
+config/            settings (local, cloud, desktop), sources, glossary
 eval/              questions.yaml (retrieval eval set)
+packaging/         PyInstaller spec and Inno Setup installer for the desktop app
 scripts/           setup.ps1, start.ps1
 ```
